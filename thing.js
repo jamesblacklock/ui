@@ -1,3 +1,4 @@
+(w => {
 w.Thing = w.Thing || {
 	__begin(p) {
 		p.__l = null;
@@ -17,7 +18,8 @@ w.Thing = w.Thing || {
 		}
 		return e;
 	},
-	__insert(p, e) {
+	__in(p, t, i, c) {
+		let e = w.Thing.__get(p, t, i, c);
 		w.Thing.__begin(e);
 		if(e.__in) {
 			p.__l = e;
@@ -38,10 +40,7 @@ w.Thing = w.Thing || {
 		e.__in = true;
 		return e;
 	},
-	__include(p, t, i, c) {
-		return w.Thing.__insert(p, w.Thing.__get(p, t, i, c));
-	},
-	__exclude(p, t, i, c) {
+	__out(p, t, i, c) {
 		let e = w.Thing.__get(p, t, i, c);
 		if(e.__in) {
 			e.remove();
@@ -66,7 +65,8 @@ w.Thing = w.Thing || {
 		e.__events = e.__events || {};
 		if(e.__events[n]?.unbound == c) {
 			return;
-		} else if(e.__events[n]) {
+		}
+		if(e.__events[n]) {
 			e.removeEventListener("click", e.__events[n].bound);
 		}
 		if(c) {
@@ -75,3 +75,4 @@ w.Thing = w.Thing || {
 		}
 	}
 };
+})(window);

@@ -9,11 +9,37 @@ mod elements;
 mod web;
 
 use elements as el;
-use elements::Element;
+use elements::{Element, Component2};
+
+#[derive(Clone)]
+pub struct LookupScope<'a> {
+	module: &'a Module,
+	imports: Option<&'a HashMap<String, PathBuf>>,
+}
+
+impl <'a> LookupScope<'a> {
+	fn construct(&self, parse_tree: &parser::Element) -> Result<(Box<dyn el::ElementImpl>, Vec<el::Element>), String> {
+		if self.imports.is_some() && parse_tree.path.len() == 1 {
+			if let Some(file_path) = self.imports.unwrap().get(&parse_tree.path[0]) {
+				let component = self.module.global_imports.get(file_path).unwrap();
+				let scope = LookupScope { module: self.module, imports: Some(&component.imports_map) };
+				return Ok(Component2::construct(&scope, &component.parse_tree));
+			}
+		}
+
+		Ok(self.module.lookup(&parse_tree.path)?(self, parse_tree))
+	}
+}
 
 pub struct Module {
-	name: String,
 	map: HashMap<String, Item>,
+	global_imports: HashMap<PathBuf, Component>,
+}
+
+#[derive(Debug)]
+pub struct Import {
+	pub path: String,
+	pub alias: Option<String>,
 }
 
 pub enum Item {
@@ -22,9 +48,9 @@ pub enum Item {
 }
 
 impl Module {
-	pub fn new<S: Into<String>>(name: S) -> Self {
+	pub fn new(global_imports: HashMap<PathBuf, Component>) -> Self {
 		Self {
-			name: name.into(),
+			global_imports,
 			map: hashmap![
 				// String::from("window") => Item::Constructor(el::Window::construct),
 				String::from("rect")   => Item::Constructor(el::Rect::construct),
@@ -43,13 +69,13 @@ impl Module {
 		}
 	}
 
-	pub fn lookup(&self, path: &Vec<&str>) -> Result<el::Constructor, String> {
+	pub fn lookup(&self, path: &Vec<String>) -> Result<el::Constructor, String> {
 		assert!(path.len() > 0);
 		
 		let mut map = &self.map;
 		let mut it = path.iter().peekable();
 		loop {
-			let &segment = it.next().unwrap();
+			let segment = it.next().unwrap();
 
 			if let Some(item) = map.get(segment) {
 				match item {
@@ -184,14 +210,90 @@ impl Value {
 	// }
 }
 
+use std::{ env, fs, process, path::PathBuf, io::Read };
+
+#[derive(Debug)]
+pub struct Component {
+	pub name: String,
+	pub parse_tree: parser::Element,
+	pub import_decls: Vec<Import>,
+	pub imports_map: HashMap<String, PathBuf>,
+}
+
+fn load_single_ui_component<'a>(exe: &str, path: PathBuf) -> Component {
+		let mut ui_string = String::new();
+		fs::File::open(&path)
+			.unwrap()
+			.read_to_string(&mut ui_string)
+			.unwrap();
+		
+		let component = if let Ok(mut component) = parser::parse(&ui_string) {
+			component.name = path
+				.file_stem()
+				.unwrap()
+				.to_string_lossy()
+				.into();
+			component
+		} else {
+			eprintln!("{}: parse error", exe);
+			process::exit(1);
+		};
+
+		component
+}
+
+fn resolve_ui_import<'a>(exe: &str, import: Import, components: &'a mut HashMap<PathBuf, Component>) -> (String, PathBuf) {
+	let pathbuf = if let Ok(path) = fs::canonicalize(&import.path) {
+		Some(path)
+	} else if let Ok(path) = fs::canonicalize(import.path.clone() + ".ui") {
+		Some(path)
+	} else {
+		None
+	};
+	let pathbuf = if pathbuf.is_none() || !pathbuf.as_ref().unwrap().is_file() {
+		eprintln!("{}: invalid path specified: {}", exe, import.path);
+		process::exit(1);
+	} else {
+		pathbuf.unwrap()
+	};
+	if let Some(component) = components.get(&pathbuf) {
+		return (component.name.clone(), pathbuf);
+	}
+
+	let mut component = load_single_ui_component(exe, pathbuf.clone());
+	
+	while let Some(import) = component.import_decls.pop() {
+		let alias = import.alias.clone();
+		let (name, path) = resolve_ui_import(exe, import, components);
+		component.imports_map.insert(alias.unwrap_or(name), path);
+	}
+	
+	let name = component.name.clone();
+	components.insert(pathbuf.clone(), component);
+	(name, pathbuf)
+}
+
+fn load_ui_component<'a>(exe: &str, path: String, imports: &mut HashMap<PathBuf, Component>) -> Component {
+	let ui_import = Import { path, alias: None };
+	let (_, path) = resolve_ui_import(exe, ui_import, imports);
+	imports.remove(&path).unwrap()
+}
+
 fn main() {
-	let ml = include_str!("./hello.ui");
-	let parse_tree = parser::parse(ml).expect("parse error:");
-	// println!("{:#?}", parse_tree);
 
-	let module = Module::new("builtins");
-	let root = el::build_element(&module, parse_tree);//build_dom(&module, parse_tree);
-	// println!("{:#?}", dom);
+	let args: Vec<_> = env::args().collect();
+	if args.len() != 2 {
+		eprintln!("usage: {} <FILE>", args[0]);
+		process::exit(1);
+	}
+	
+	let mut imports = HashMap::new();
+	let component = load_ui_component(&args[0], args[1].clone(), &mut imports);
+	// println!("{:#?}", component);
 
-	web::render(root, "hello");
+	let module = Module::new(imports);
+	let root = el::build_component(&module, &component);
+	println!("{:#?}", root);
+
+	web::render(root, &component.name);
 }

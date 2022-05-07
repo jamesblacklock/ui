@@ -47,34 +47,73 @@ use nom::{
 	},
 };
 
-use super::Value;
+use super::{Value, Import, Component};
 
 type ParseError<'a> = nom::Err<nom::error::Error<&'a str>>;
 
-pub fn parse(input: &str) -> Result<Element, ParseError> {
-	terminated(
-		delimited(skip_space, element, skip_space),
-		eof,
+pub fn parse(input: &str) -> Result<Component, ParseError> {
+	let (imports, element) = pair(
+		imports,
+		terminated(
+			delimited(skip_space, element, skip_space),
+			eof,
+		),
 	)
 	(input)
-	.map(|(_, result)| result)
+	.map(|(_, result)| result)?;
+
+	Ok(Component {
+		name: String::new(),
+		parse_tree: element,
+		import_decls: imports,
+		imports_map: HashMap::new(),
+	})
 }
 
 #[derive(Debug)]
-pub struct Repeater<'a> {
-	pub index: Option<&'a str>,
-	pub item: &'a str,
+pub struct Repeater {
+	pub index: Option<String>,
+	pub item: String,
 	pub collection: Value,
 }
 
 #[derive(Debug)]
-pub struct Element<'a> {
-	pub path: Vec<&'a str>,
+pub struct Element {
+	pub path: Vec<String>,
 	pub condition: Option<Value>,
-	pub repeater: Option<Repeater<'a>>,
-	pub properties: HashMap<&'a str, Value>,
-	pub event_handlers: HashMap<&'a str, Value>,
-	pub children: Vec<Element<'a>>,
+	pub repeater: Option<Repeater>,
+	pub properties: HashMap<String, Value>,
+	pub event_handlers: HashMap<String, Value>,
+	pub children: Vec<Element>,
+	// pub imports_map: Option<HashMap<String, PathBuf>>,
+}
+
+fn import(input: &str) -> IResult<&str, Import> {
+	map(
+		terminated(
+			pair(
+				delimited(
+					pair(tag("@import"), skip_space),
+					string,
+					skip_space,
+				),
+				opt(
+					delimited(
+						pair(tag("as"), skip_space),
+						name,
+						skip_space
+					),
+				),
+			),
+			char(';')
+		),
+		|(path,alias)| Import { path: path.to_owned(), alias: alias.map(|e| e.to_owned()) }
+	)
+	(input)
+}
+
+fn imports(input: &str) -> IResult<&str, Vec<Import>> {
+	many0(delimited(skip_space, import, skip_space))(input)
 }
 
 fn element(input: &str) -> IResult<&str, Element> {
@@ -95,19 +134,27 @@ fn element(input: &str) -> IResult<&str, Element> {
 	(input)?;
 	
 	let properties = properties.into_iter().fold(HashMap::new(), |mut acc, p| {
-		acc.insert(p.name, p.value);
+		acc.insert(p.name.to_owned(), p.value);
 		acc
 	});
 
 	let event_handlers = event_handlers.into_iter().fold(HashMap::new(), |mut acc, p| {
-		acc.insert(p.name, p.value);
+		acc.insert(p.name.to_owned(), p.value);
 		acc
+	});
+
+	let path = path.into_iter().map(|e| e.to_owned()).collect();
+
+	let repeater = repeater.map(|(i, e, c)| Repeater {
+		index: i.map(|e| e.to_owned()),
+		item: e.to_owned(),
+		collection: c
 	});
 
 	Ok((input, Element {
 		path,
 		condition,
-		repeater: repeater.map(|(i, e, c)| Repeater { index: i, item: e, collection: c }),
+		repeater,
 		properties,
 		event_handlers,
 		children,
@@ -115,14 +162,19 @@ fn element(input: &str) -> IResult<&str, Element> {
 }
 
 fn text_content(input: &str) -> IResult<&str, Element> {
-	let (input, result) = alt((string, binding))(input)?;
+	let (input, result) = alt((
+		map(string, |e: &str| Value::String(e.to_owned())),
+		binding
+	))
+	(input)?;
+
 	Ok((input, Element {
-		path: vec!["text"],
+		path: vec!["text".to_owned()],
 		condition: None,
 		repeater: None,
-		properties: hashmap!["content" => result],
+		properties: hashmap!["content".to_owned() => result],
 		event_handlers: HashMap::new(),
-		children: Vec::new()
+		children: Vec::new(),
 	}))
 }
 
@@ -225,7 +277,7 @@ fn value(input: &str) -> IResult<&str, Value> {
 	alt((
 		px,
 		map(float, |e| Value::Float(e)),
-		string,
+		map(string, |e: &str| Value::String(e.to_owned())),
 		color,
 		boolean,
 		binding,
@@ -241,10 +293,10 @@ fn px(input: &str) -> IResult<&str, Value> {
 	(input)
 }
 
-fn string(input: &str) -> IResult<&str, Value> {
+fn string(input: &str) -> IResult<&str, &str> {
 	delimited(
 		char('"'),
-		map(recognize(many0(satisfy(|c| c != '"'))), |e: &str| Value::String(e.to_owned())),
+		recognize(many0(satisfy(|c| c != '"'))),
 		char('"')
 	)
 	(input)

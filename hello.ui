@@ -1,4 +1,7 @@
+@import "./my_rect" as red_rect;
+
 rect {
+    red_rect {}
     rect {
         x: 50px; y: 50px; width: 90px; height: 40px; background: #ccc;
         @click: (add_item);

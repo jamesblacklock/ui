@@ -17,6 +17,7 @@ use super::{
 		ElementData,
 		Empty,
 		Repeater,
+		Component2,
 	}
 };
 
@@ -24,9 +25,7 @@ pub fn render<S: Into<String>>(root: Element, name: S) {
 	let mut ctx = WebRenderer::new(name);
 	let root = root.render_web(&mut ctx).unwrap();
 
-	writeln!(ctx.file, "(w => {{").unwrap();
-	ctx.file.write(include_bytes!("./setup.js")).unwrap();
-	writeln!(ctx.file, "w.Thing.{} = (p, d={{}}, i=0) => {{\n\tThing.__begin(p);", ctx.name).unwrap();
+	writeln!(ctx.file, "(w => {{\nw.Thing.{} = (p, d={{}}, i=0) => {{\n\tThing.__begin(p);", ctx.name).unwrap();
 	
 	ctx.indent = 1;
 	root.render_js(&mut ctx);
@@ -104,7 +103,7 @@ impl HtmlElement {
 			ind = ctx.indent();
 		}
 		
-		writeln!(ctx.file, "{ind}let e = Thing.__include(p, \"{}\", i);", self.tag).unwrap();
+		writeln!(ctx.file, "{ind}let e = Thing.__in(p, \"{}\", i);", self.tag).unwrap();
 
 		render_value_js_coerce(ctx, format!("{ind}e.style.position = "),   &self.style.position, ";\n",    Coerce::AsCss);
 		render_value_js_coerce(ctx, format!("{ind}e.style.display = "),    &self.style.display, ";\n",     Coerce::AsCss);
@@ -134,7 +133,7 @@ impl HtmlElement {
 					writeln!(ctx.file, "{ind}}})(e, d, {i});").unwrap();
 				},
 				HtmlContent::Text(value) => {
-					render_value_js(ctx, format!("{ind}Thing.__include(e, null, {i}, "), value, ");\n");
+					render_value_js(ctx, format!("{ind}Thing.__in(e, null, {i}, "), value, ");\n");
 				},
 			}
 		}
@@ -155,7 +154,7 @@ impl HtmlElement {
 		if self.condition.is_some() {
 			ctx.indent -= 1;
 			ind = ctx.indent();
-			writeln!(ctx.file, "{ind}}} else {{\n{ind}\tThing.__exclude(p, \"{}\", i);\n{ind}}}", self.tag).unwrap();
+			writeln!(ctx.file, "{ind}}} else {{\n{ind}\tThing.__out(p, \"{}\", i);\n{ind}}}", self.tag).unwrap();
 		}
 	}
 }
@@ -359,6 +358,13 @@ impl RenderWeb for Text {
 		if using_span { ctx.begin_element(HtmlElement::new("span", &e)); }
 		ctx.append_content(HtmlContent::Text(self.content.clone()));
 		if using_span { ctx.end_element() } else { None }
+	}
+}
+
+impl RenderWeb for Component2 {
+	fn render(&self, e: ElementData, ctx: &mut WebRenderer) -> Option<HtmlElement> {
+		ctx.render_children(e.children);
+		None
 	}
 }
 

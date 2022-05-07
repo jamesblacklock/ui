@@ -5,10 +5,12 @@ use super::{
 	web::{RenderWeb, WebRenderer, HtmlElement},
 	parser::Element as ParserElement,
 	Module,
+	LookupScope,
 	Value,
+	Component,
 };
 
-pub type Constructor = fn(&Module, &mut ParserElement) -> Box<dyn ElementImpl>;
+pub type Constructor = fn(&LookupScope, &ParserElement) -> (Box<dyn ElementImpl>, Vec<Element>);
 
 #[derive(Default, Debug)]
 pub struct StandardProps {
@@ -62,43 +64,51 @@ impl Default for Element {
 }
 
 impl Element {
-	pub fn construct(module: &Module, mut parse_tree: ParserElement) -> Result<Self, String> {
-		let standard_props = Self::init_props(&mut parse_tree.properties);
-		let constructor = module.lookup(&parse_tree.path)?;
-		let element_impl = constructor(&module, &mut parse_tree);
-		let children = build_dom(module, parse_tree.children);
-		let repeater = parse_tree.repeater.map(|e| Repeater {
-			index: e.index.map(|e| e.into()),
-			item: e.item.into(),
-			collection: e.collection,
+	fn construct(scope: LookupScope, c: ParserElementOrComponent) -> Result<Self, String> {
+		let (parse_tree, scope) = match c {
+			ParserElementOrComponent::Component(c) => {
+				(&c.parse_tree, LookupScope { module: scope.module, imports: Some(&c.imports_map) })
+			}
+			ParserElementOrComponent::Element(e) => {
+				(e, scope)
+			}
+		};
+		let standard_props = Self::init_props(&parse_tree.properties);
+		let (element_impl, children) = scope.construct(&parse_tree)?;
+		// let element_impl = constructor(&scope, &parse_tree);
+		// let children = build_dom(scope, &parse_tree.children);
+		let repeater = parse_tree.repeater.as_ref().map(|e| Repeater {
+			index: e.index.as_ref().map(|e| e.into()),
+			item: e.item.clone(),
+			collection: e.collection.clone(),
 		});
 		Ok(Element {
 			tag: parse_tree.path.join("."),
-			condition: parse_tree.condition,
+			condition: parse_tree.condition.clone(),
 			repeater,
 			standard_props,
-			temporary_hacky_click_handler: parse_tree.event_handlers.remove("click"),
+			temporary_hacky_click_handler: parse_tree.event_handlers.get("click").map(|e| e.clone()),
 			children,
 			element_impl,
 		})
 	}
 
-	pub fn init_props(props: &mut HashMap<&str, Value>) -> StandardProps {
+	pub fn init_props(props: &HashMap<String, Value>) -> StandardProps {
 		let mut standard_props = StandardProps::default();
-		if let Some(value) = props.remove("width") {
-			standard_props.width = value;
+		if let Some(value) = props.get("width") {
+			standard_props.width = value.clone();
 		}
-		if let Some(value) = props.remove("height") {
-			standard_props.height = value;
+		if let Some(value) = props.get("height") {
+			standard_props.height = value.clone();
 		}
-		if let Some(value) = props.remove("x") {
-			standard_props.x = value;
+		if let Some(value) = props.get("x") {
+			standard_props.x = value.clone();
 		}
-		if let Some(value) = props.remove("y") {
-			standard_props.y = value;
+		if let Some(value) = props.get("y") {
+			standard_props.y = value.clone();
 		}
-		if let Some(value) = props.remove("background") {
-			standard_props.background = value;
+		if let Some(value) = props.get("background") {
+			standard_props.background = value.clone();
 		}
 
 		standard_props
@@ -120,10 +130,15 @@ impl Element {
 	}
 }
 
-fn build_dom(module: &Module, parse_tree: Vec<ParserElement>) -> Vec<Element> {
+enum ParserElementOrComponent<'a> {
+	Element(&'a ParserElement),
+	Component(&'a Component),
+}
+
+fn build_dom(scope: &LookupScope, parse_tree: &Vec<ParserElement>) -> Vec<Element> {
 	let mut elements = Vec::new();
 	for item in parse_tree {
-		match Element::construct(module, item) {
+		match Element::construct(scope.clone(), ParserElementOrComponent::Element(item)) {
 			Ok(element) => elements.push(element),
 			Err(message) => eprintln!("Error: {}", message)
 		}
@@ -131,8 +146,16 @@ fn build_dom(module: &Module, parse_tree: Vec<ParserElement>) -> Vec<Element> {
 	elements
 }
 
-pub fn build_element(module: &Module, parse_tree: ParserElement) -> Element {
-	match Element::construct(module, parse_tree) {
+fn build_element(scope: &LookupScope, parse_tree: &ParserElement) -> Option<Element> {
+	match Element::construct(scope.clone(), ParserElementOrComponent::Element(parse_tree)) {
+		Ok(element) => Some(element),
+		Err(message) => { eprintln!("Error: {}", message); None }
+	}
+}
+
+pub fn build_component(module: &Module, component: &Component) -> Element {
+	let scope = LookupScope { module, imports: Some(&component.imports_map) };
+	match Element::construct(scope, ParserElementOrComponent::Component(component)) {
 		Ok(element) => element,
 		Err(message) => {
 			eprintln!("Error: {}", message);
@@ -171,8 +194,8 @@ pub struct Rect {}
 impl ElementImpl for Rect {}
 
 impl Rect {
-	pub fn construct(_: &Module, _: &mut ParserElement) -> Box<dyn ElementImpl> {
-		Box::new(Rect {})
+	pub fn construct(scope: &LookupScope, parse_tree: &ParserElement) -> (Box<dyn ElementImpl>, Vec<Element>) {
+		(Box::new(Rect {}), build_dom(scope, &parse_tree.children))
 	}
 }
 
@@ -207,8 +230,8 @@ impl Rect {
 pub struct Span {}
 
 impl Span {
-	pub fn construct(_: &Module, _: &mut ParserElement) -> Box<dyn ElementImpl> {
-		Box::new(Span {})
+	pub fn construct(scope: &LookupScope, parse_tree: &ParserElement) -> (Box<dyn ElementImpl>, Vec<Element>) {
+		(Box::new(Span {}), build_dom(scope, &parse_tree.children))
 	}
 }
 
@@ -220,15 +243,28 @@ pub struct Text {
 }
 
 impl Text {
-	pub fn construct(_module: &Module, parse_tree: &mut ParserElement) -> Box<dyn ElementImpl> {
+	pub fn construct(scope: &LookupScope, parse_tree: &ParserElement) -> (Box<dyn ElementImpl>, Vec<Element>) {
 		let content = parse_tree.properties
-			.remove("content")
+			.get("content")
+			.map(|e| e.clone())
 			.unwrap_or(Value::String("".to_owned()));
-		Box::new(Text { content })
+		(Box::new(Text { content }), build_dom(scope, &parse_tree.children))
 	}
 }
 
 impl ElementImpl for Text {}
+
+#[derive(Debug)]
+pub struct Component2 {}
+
+impl Component2 {
+	pub fn construct(scope: &LookupScope, parse_tree: &ParserElement) -> (Box<dyn ElementImpl>, Vec<Element>) {
+		let children = build_element(scope, parse_tree).map(|e| vec![e]).unwrap_or(Vec::new());
+		(Box::new(Component2 {}), children)
+	}
+}
+
+impl ElementImpl for Component2 {}
 
 // #[derive(Debug)]
 // pub struct ChildPropertySetter {

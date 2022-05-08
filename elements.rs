@@ -200,33 +200,6 @@ impl Rect {
 	}
 }
 
-// #[derive(Debug)]
-// pub struct PanesH {
-// 	pub children: Vec<Box<dyn Element>>,
-// }
-
-
-// impl PanesH {
-// 	pub fn construct(module: &Module, parse_tree: ParserElement) -> Box<dyn Element> {
-// 		let children = build_elements(module, parse_tree.children);
-// 		Box::new(PanesH { children })
-// 	}
-// }
-
-// #[derive(Debug)]
-// pub struct PanesV {
-// 	pub children: Vec<Box<dyn Element>>,
-// }
-
-
-// impl PanesV {
-// 	pub fn construct(module: &Module, parse_tree: ParserElement) -> Box<dyn Element> {
-// 		let children = build_elements(module, parse_tree.children);
-// 		Box::new(PanesV { children })
-// 	}
-// }
-
-
 #[derive(Debug)]
 pub struct Span {
 	pub color: Value,
@@ -286,38 +259,18 @@ impl Component {
 
 impl ElementImpl for Component {}
 
-// #[derive(Debug)]
-// pub struct ChildPropertySetter {
-// 	pub children: Vec<Box<dyn Element>>,
-// }
+#[derive(Debug)]
+pub struct Layout {
+	
+}
 
-// impl ChildPropertySetter {
-// 	pub fn construct_i<'a>(module: &'a Module, parse_tree: ParserElement<'a>) -> Box<dyn Element> {
-// 		let children = build_elements_with_transform(module, parse_tree.children, move |mut child| {
-// 			let mut props = parse_tree.properties.clone();
-// 			props.insert("i", Value::Boolean(true));
-// 			for (k, v) in child.properties.iter() {
-// 				props.insert(k, v.clone());
-// 			}
-// 			child.properties = props;
-// 			Some(child)
-// 		});
-// 		Box::new(ChildPropertySetter { children })
-// 	}
+impl Layout {
+	pub fn construct(scope: &LookupScope, parse_tree: &ParserElement) -> (Box<dyn ElementImpl>, Vec<Element>) {
+		(Box::new(Layout {}), build_elements(scope, &parse_tree.children))
+	}
+}
 
-// 	pub fn construct_b(module: &Module, parse_tree: ParserElement) -> Box<dyn Element> {
-// 		let children = build_elements_with_transform(module, parse_tree.children, move |mut child| {
-// 			let mut props = parse_tree.properties.clone();
-// 			props.insert("b", Value::Boolean(true));
-// 			for (k, v) in child.properties.iter() {
-// 				props.insert(k, v.clone());
-// 			}
-// 			child.properties = props;
-// 			Some(child)
-// 		});
-// 		Box::new(ChildPropertySetter { children })
-// 	}
-// }
+impl ElementImpl for Layout {}
 
 
 // #[derive(Debug)]

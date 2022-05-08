@@ -56,15 +56,8 @@ impl Module {
 				String::from("rect")   => Item::Constructor(el::Rect::construct),
 				String::from("text")   => Item::Constructor(el::Text::construct),
 				String::from("span")   => Item::Constructor(el::Span::construct),
-				// String::from("i")      => Item::Constructor(el::ChildPropertySetter::construct_i),
-				// String::from("b")      => Item::Constructor(el::ChildPropertySetter::construct_b),
+				String::from("layout") => Item::Constructor(el::Layout::construct),
 				// String::from("img")    => Item::Constructor(el::Img::construct),
-				// String::from("panes")  => Item::Module(Module {
-				// 	name: String::from("panes"),
-				// 	map: hashmap![
-				// 		String::from("h")  => Item::Constructor(el::PanesH::construct),
-				// 		String::from("v")  => Item::Constructor(el::PanesV::construct),
-				// ]}),
 			]
 		}
 	}
@@ -250,7 +243,12 @@ fn load_single_ui_component<'a>(exe: &str, path: PathBuf) -> parser::Component {
 		component
 }
 
-fn resolve_ui_import<'a>(exe: &str, import: Import, components: &'a mut HashMap<PathBuf, parser::Component>) -> (String, PathBuf) {
+fn resolve_ui_import<'a>(
+	exe: &str,
+	import: Import,
+	components: &'a mut HashMap<PathBuf,
+	parser::Component>) -> (String, PathBuf) {
+	
 	let pathbuf = if let Ok(path) = fs::canonicalize(&import.path) {
 		Some(path)
 	} else if let Ok(path) = fs::canonicalize(import.path.clone() + ".ui") {
@@ -365,13 +363,8 @@ fn watch(exe: &str, path: &str) {
 		}
 		for path in paths.iter() {
 			watcher.watch(path, RecursiveMode::NonRecursive).unwrap();
-		}
-
-		println!("watching: {:?}", path);
-		for path in paths.iter() {
 			println!("watching: {:?}", path);
 		}
-
 		prev_paths = paths;
 	};
 	

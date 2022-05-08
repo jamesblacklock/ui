@@ -18,6 +18,7 @@ use super::{
 		ElementData,
 		Empty,
 		Repeater,
+		Layout,
 		Component,
 	}
 };
@@ -44,6 +45,7 @@ enum HtmlContent {
 struct HtmlStyle {
 	position: Value,
 	display: Value,
+	flex: Value,
 	color: Value,
 	background: Value,
 	left: Value,
@@ -167,6 +169,14 @@ impl HtmlElement {
 				ctx,
 				format!("{ind}e.style.display = "),
 				&self.style.display,
+				";\n",
+				Coerce::AsCss);
+		}
+		if self.style.flex.is_set() {
+			render_value_js_coerce(
+				ctx,
+				format!("{ind}e.style.flex = "),
+				&self.style.flex,
 				";\n",
 				Coerce::AsCss);
 		}
@@ -322,6 +332,7 @@ pub struct WebRenderer {
 	indent: u32,
 	position: Vec<&'static str>,
 	display: Vec<&'static str>,
+	flex: Vec<&'static str>,
 	stack: Vec<HtmlElement>,
 }
 
@@ -336,6 +347,7 @@ impl WebRenderer {
 			indent: 0,
 			position: vec!["absolute"],
 			display: vec!["block"],
+			flex: vec!["block"],
 			stack: Vec::new(),
 		}
 	}
@@ -352,9 +364,14 @@ impl WebRenderer {
 		self.display[self.display.len() - 1].to_owned()
 	}
 
+	fn flex(&self) -> String {
+		self.flex[self.flex.len() - 1].to_owned()
+	}
+
 	fn begin_element(&mut self, mut element: HtmlElement) {
 		element.style.position = Value::String(self.position());
 		element.style.display = Value::String(self.display());
+		element.style.flex = Value::String(self.flex());
 		self.stack.push(element);
 	}
 
@@ -454,6 +471,24 @@ impl RenderWeb for Component {
 impl RenderWeb for Empty {
 	fn render(&self, _: ElementData, _: &mut WebRenderer) -> Option<HtmlElement> {
 		None
+	}
+}
+
+impl RenderWeb for Layout {
+	fn render(&self, e: ElementData, ctx: &mut WebRenderer) -> Option<HtmlElement> {
+		let div = HtmlElement::new("div", &e);
+		ctx.display.push("flex");
+		ctx.begin_element(div);
+		ctx.flex.push("1");
+		ctx.display.push("block");
+		ctx.position.push("static");
+		ctx.render_children(e.children);
+		ctx.position.pop();
+		ctx.display.pop();
+		ctx.flex.pop();
+		let result = ctx.end_element();
+		ctx.display.pop();
+		result
 	}
 }
 

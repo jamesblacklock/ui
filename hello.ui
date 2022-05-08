@@ -1,59 +1,66 @@
-import "./my_rect" as red_rect;
-import "./abc";
-
-rect {
-    red_rect { x: 20px; y: 200px; }
-    red_rect { x: 100px; y: 230px; }
-    red_rect { x: 180px; y: 260px; }
-    red_rect { x: 260px; y: 290px; }
-    abc {}
-
-    rect {
-        x: 50px;
-        y: 50px;
-        width: 90px;
-        height: 40px;
-        background: #888;
-        
-        @click: (add_item);
-
-        span {
-            x: 20px; y: 10px; color: #fff;
-            "add item"
-        }
-    }
-
-    rect {
-        x: 150px;
-        y: 50px;
-        width: 120px;
-        height: 40px;
-        background: #888;
-        
-        @click: (remove_item);
-        
-        span {
-            x: 20px; y: 10px; color: #fff;
-            "remove item"
-        }
-    }
-
-    rect {
-        width: 300px;
-        height: 50px;
-        x: (n);
-        y: 200px;
-        background: #4293dc;
-
-        @click: (toggle_visibility);
-
-        span {
-            span if (show_span) {
-                rect for i: item in (some_list) {
-                    (i) ". " (item) text { content: "; " }
-                }
-            }
-            span { "other span" }
-        }
-    }
+layout {
+    width: 600px;
+    height: 200px;
+    background: #ccc;
+    span {"1"} span {"2"} span {"3"}
 }
+
+// import "./my_rect" as red_rect;
+// import "./abc";
+
+// rect {
+//     red_rect { x: 20px; y: 200px; }
+//     red_rect { x: 100px; y: 230px; }
+//     red_rect { x: 180px; y: 260px; }
+//     red_rect { x: 260px; y: 290px; }
+//     abc {}
+
+//     rect {
+//         x: 50px;
+//         y: 50px;
+//         width: 90px;
+//         height: 40px;
+//         background: #888;
+        
+//         @click: (add_item);
+
+//         span {
+//             x: 20px; y: 10px; color: #fff;
+//             "add item"
+//         }
+//     }
+
+//     rect {
+//         x: 150px;
+//         y: 50px;
+//         width: 120px;
+//         height: 40px;
+//         background: #888;
+        
+//         @click: (remove_item);
+        
+//         span {
+//             x: 20px; y: 10px; color: #fff;
+//             "remove item"
+//         }
+//     }
+
+//     rect {
+//         width: 300px;
+//         height: 50px;
+//         x: (n);
+//         y: 200px;
+//         background: #4293dc;
+
+//         @click: (toggle_visibility);
+
+//         span {
+//             span if (show_span) {
+//                 rect for i: item in (some_list) {
+//                     (i) ". " (item) text { content: "; " }
+//                 }
+//             }
+//             span { "other span" }
+//         }
+//     }
+// }

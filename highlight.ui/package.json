@@ -1,0 +1,25 @@
+{
+    "name": "ui",
+    "displayName": "Ui",
+    "description": "",
+    "version": "0.0.1",
+    "engines": {
+        "vscode": "^1.43.0"
+    },
+    "categories": [
+        "Programming Languages"
+    ],
+    "contributes": {
+        "languages": [{
+            "id": "ui",
+            "aliases": ["Ui", "ui"],
+            "extensions": [".ui"],
+            "configuration": "./language-configuration.json"
+        }],
+        "grammars": [{
+            "language": "ui",
+            "scopeName": "source.ui",
+            "path": "./syntaxes/ui.tmLanguage.json"
+        }]
+    }
+}

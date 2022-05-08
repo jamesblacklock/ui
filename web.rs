@@ -107,16 +107,7 @@ impl HtmlElement {
 		
 		writeln!(ctx.file, "{ind}let e = Thing.__in(p, \"{}\", i);", self.tag).unwrap();
 
-		render_value_js_coerce(ctx, format!("{ind}e.style.position = "),   &self.style.position, ";\n",    Coerce::AsCss);
-		render_value_js_coerce(ctx, format!("{ind}e.style.display = "),    &self.style.display, ";\n",     Coerce::AsCss);
-		render_value_js_coerce(ctx, format!("{ind}e.style.background = "), &self.style.background, ";\n",  Coerce::AsCss);
-		render_value_js_coerce(ctx, format!("{ind}e.style.left = "),       &self.style.left, ";\n",        Coerce::AsCss);
-		render_value_js_coerce(ctx, format!("{ind}e.style.top = "),        &self.style.top, ";\n",         Coerce::AsCss);
-		render_value_js_coerce(ctx, format!("{ind}e.style.width = "),      &self.style.width, ";\n",       Coerce::AsCss);
-		render_value_js_coerce(ctx, format!("{ind}e.style.height = "),     &self.style.height, ";\n",      Coerce::AsCss);
-		render_value_js_coerce(ctx, format!("{ind}e.style.fontWeight = "), &self.style.font_weight, ";\n", Coerce::AsCss);
-		render_value_js_coerce(ctx, format!("{ind}e.style.fontStyle = "),  &self.style.font_style, ";\n",  Coerce::AsCss);
-		render_value_js_coerce(ctx, format!("{ind}e.style.color = "),      &self.style.color, ";\n",       Coerce::AsCss);
+		self.render_style_props(ctx);
 
 		for (k, v) in self.attrs.iter() {
 			render_value_js(ctx, format!("{ind}e.setAttribute(\"{k}\", "), v, ");\n");
@@ -158,6 +149,90 @@ impl HtmlElement {
 			ctx.indent -= 1;
 			ind = ctx.indent();
 			writeln!(ctx.file, "{ind}}} else {{\n{ind}\tThing.__out(p, \"{}\", i);\n{ind}}}", self.tag).unwrap();
+		}
+	}
+
+	fn render_style_props(&self, ctx: &mut WebRenderer) {
+		let ind = ctx.indent();
+		if self.style.position.is_set() {
+			render_value_js_coerce(
+				ctx,
+				format!("{ind}e.style.position = "),
+				&self.style.position,
+				";\n",
+				Coerce::AsCss);
+		}
+		if self.style.display.is_set() {
+			render_value_js_coerce(
+				ctx,
+				format!("{ind}e.style.display = "),
+				&self.style.display,
+				";\n",
+				Coerce::AsCss);
+		}
+		if self.style.background.is_set() {
+			render_value_js_coerce(
+				ctx,
+				format!("{ind}e.style.background = "),
+				&self.style.background,
+				";\n",
+				Coerce::AsCss);
+		}
+		if self.style.left.is_set() {
+			render_value_js_coerce(
+				ctx,
+				format!("{ind}e.style.left = "),
+				&self.style.left,
+				";\n",
+				Coerce::AsCss);
+		}
+		if self.style.top.is_set() {
+			render_value_js_coerce(
+				ctx,
+				format!("{ind}e.style.top = "),
+				&self.style.top,
+				";\n",
+				Coerce::AsCss);
+		}
+		if self.style.width.is_set() {
+			render_value_js_coerce(
+				ctx,
+				format!("{ind}e.style.width = "),
+				&self.style.width,
+				";\n",
+				Coerce::AsCss);
+		}
+		if self.style.height.is_set() {
+			render_value_js_coerce(
+				ctx,
+				format!("{ind}e.style.height = "),
+				&self.style.height,
+				";\n",
+				Coerce::AsCss);
+		}
+		if self.style.font_weight.is_set() {
+			render_value_js_coerce(
+				ctx,
+				format!("{ind}e.style.fontWeight = "),
+				&self.style.font_weight,
+				";\n",
+				Coerce::AsCss);
+		}
+		if self.style.font_style.is_set() {
+			render_value_js_coerce(
+				ctx,
+				format!("{ind}e.style.fontStyle = "),
+				&self.style.font_style,
+				";\n",
+				Coerce::AsCss);
+		}
+		if self.style.color.is_set() {
+			render_value_js_coerce(
+				ctx,
+				format!("{ind}e.style.color = "),
+				&self.style.color,
+				";\n",
+				Coerce::AsCss);
 		}
 	}
 }

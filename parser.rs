@@ -100,7 +100,7 @@ fn import(input: &str) -> IResult<&str, Import> {
 		terminated(
 			pair(
 				delimited(
-					pair(tag("@import"), skip_space),
+					pair(tag("import"), skip_space),
 					string,
 					skip_space,
 				),
@@ -272,12 +272,21 @@ fn path(input: &str) -> IResult<&str, Vec<&str>> {
 }
 
 fn name(input: &str) -> IResult<&str, &str> {
-	recognize(
-		pair(
-			satisfy(|c| is_alphabetic(c as u8) || c == '_'),
-			many0(satisfy(|c| is_alphanumeric(c as u8) || c == '_'))
+	preceded(
+		not(
+			terminated(
+				alt((tag("import"), tag("as"), tag("if"), tag("for"), tag("in"))),
+				not(alphanumeric1)
+			)
+		),
+		recognize(
+			pair(
+				satisfy(|c| is_alphabetic(c as u8) || c == '_'),
+				many0(satisfy(|c| is_alphanumeric(c as u8) || c == '_'))
+			)
 		)
-	)(input)
+	)
+	(input)
 }
 
 fn value(input: &str) -> IResult<&str, Value> {

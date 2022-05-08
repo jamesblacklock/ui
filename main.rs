@@ -136,11 +136,22 @@ pub enum Value {
 	Boolean(bool),
 	Binding(Expr),
 	Null,
+	Unset,
+}
+
+impl Value {
+	fn is_set(&self) -> bool {
+		if let Value::Unset = self {
+			false
+		} else {
+			true
+		}
+	}
 }
 
 impl Default for Value {
 	fn default() -> Self {
-		Value::Null
+		Value::Unset
 	}
 }
 

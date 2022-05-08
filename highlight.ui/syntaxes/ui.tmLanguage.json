@@ -1,0 +1,62 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"name": "Ui",
+	"patterns": [
+		{ "include": "#keywords" },
+		{ "include": "#strings" },
+		{ "include": "#blockcomments" },
+		{ "include": "#linecomments" },
+		{ "include": "#names" },
+		{ "include": "#events" }
+	],
+	"repository": {
+		"blockcomments": {
+			"patterns": [
+				{
+					"name": "comment.block.ui",
+					"begin": "\\/\\*",
+					"end": "\\*\\/",
+					"patterns": [
+						{
+							"include": "#blockcomments"
+						}
+					]
+				}
+			]
+		},
+		"linecomments": {
+			"name": "comment.line.ui",
+			"match": "\\/\\/.*"
+		},
+		"keywords": {
+			"patterns": [
+				{
+					"name": "keyword.control.ui",
+					"match": "\\b(if|for|in)\\b"
+				},
+				{
+					"name": "keyword.other.ui",
+					"match": "\\b(import|as)\\b"
+				}
+			]
+		},
+		"strings": {
+			"patterns": [
+				{
+					"name": "string.quoted.double.ui",
+					"begin": "\"",
+					"end": "\""
+				}
+			]
+		},
+		"events": {
+			"name": "entity.other.ui",
+			"match": "@[a-zA-Z_][a-zA-Z0-9_]*\\b"
+		},
+		"names": {
+			"name": "variable.ui",
+			"match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b"
+		}
+	},
+	"scopeName": "source.ui"
+}

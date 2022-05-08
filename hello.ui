@@ -1,5 +1,5 @@
-@import "./my_rect" as red_rect;
-@import "./abc";
+import "./my_rect" as red_rect;
+import "./abc";
 
 rect {
     red_rect { x: 20px; y: 200px; }
@@ -7,19 +7,46 @@ rect {
     red_rect { x: 180px; y: 260px; }
     red_rect { x: 260px; y: 290px; }
     abc {}
+
     rect {
-        x: 50px; y: 50px; width: 90px; height: 40px; background: #888;
+        x: 50px;
+        y: 50px;
+        width: 90px;
+        height: 40px;
+        background: #888;
+        
         @click: (add_item);
-        span {  x: 20px; y: 10px; color: #fff; "add item" }
+
+        span {
+            x: 20px; y: 10px; color: #fff;
+            "add item"
+        }
     }
+
     rect {
-        x: 150px; y: 50px; width: 120px; height: 40px; background: #888;
+        x: 150px;
+        y: 50px;
+        width: 120px;
+        height: 40px;
+        background: #888;
+        
         @click: (remove_item);
-        span { x: 20px; y: 10px; color: #fff; "remove item" }
+        
+        span {
+            x: 20px; y: 10px; color: #fff;
+            "remove item"
+        }
     }
+
     rect {
-        width: 300px; height: 50px; x: (n); y: 200px; background: #4293dc;
+        width: 300px;
+        height: 50px;
+        x: (n);
+        y: 200px;
+        background: #4293dc;
+
         @click: (toggle_visibility);
+
         span {
             span if (show_span) {
                 rect for i: item in (some_list) {

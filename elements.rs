@@ -228,15 +228,28 @@ impl Rect {
 
 
 #[derive(Debug)]
-pub struct Span {}
+pub struct Span {
+	pub color: Value,
+}
 
 impl Span {
 	pub fn construct(scope: &LookupScope, parse_tree: &ParserElement) -> (Box<dyn ElementImpl>, Vec<Element>) {
-		(Box::new(Span {}), build_elements(scope, &parse_tree.children))
+		let color = if let Some(color) = parse_tree.properties.get("color") {
+			color.clone()
+		} else {
+			Value::Color(0,0,0)
+		};
+		(Box::new(Span { color }), build_elements(scope, &parse_tree.children))
 	}
 }
 
-impl ElementImpl for Span {}
+impl ElementImpl for Span {
+	fn inherit_properties(&mut self, parse_tree: &ParserElement) {
+		if let Some(color) = parse_tree.properties.get("color") {
+			self.color = color.clone()
+		}
+	}
+}
 
 #[derive(Debug)]
 pub struct Text {

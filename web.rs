@@ -44,6 +44,7 @@ enum HtmlContent {
 struct HtmlStyle {
 	position: Value,
 	display: Value,
+	color: Value,
 	background: Value,
 	left: Value,
 	top: Value,
@@ -115,6 +116,7 @@ impl HtmlElement {
 		render_value_js_coerce(ctx, format!("{ind}e.style.height = "),     &self.style.height, ";\n",      Coerce::AsCss);
 		render_value_js_coerce(ctx, format!("{ind}e.style.fontWeight = "), &self.style.font_weight, ";\n", Coerce::AsCss);
 		render_value_js_coerce(ctx, format!("{ind}e.style.fontStyle = "),  &self.style.font_style, ";\n",  Coerce::AsCss);
+		render_value_js_coerce(ctx, format!("{ind}e.style.color = "),      &self.style.color, ";\n",       Coerce::AsCss);
 
 		for (k, v) in self.attrs.iter() {
 			render_value_js(ctx, format!("{ind}e.setAttribute(\"{k}\", "), v, ");\n");
@@ -346,7 +348,8 @@ impl RenderWeb for Rect {
 
 impl RenderWeb for Span {
 	fn render(&self, e: ElementData, ctx: &mut WebRenderer) -> Option<HtmlElement> {
-		let span = HtmlElement::new("span", &e);
+		let mut span = HtmlElement::new("span", &e);
+		span.style.color = self.color.clone();
 		ctx.begin_element(span);
 		ctx.position.push("static");
 		ctx.display.push("inline");

@@ -221,7 +221,7 @@ impl Value {
 
 use std::{ fs, process, path::PathBuf, io::Read };
 
-fn load_single_ui_component<'a>(exe: &str, path: PathBuf) -> parser::Component {
+fn load_single_ui_component<'a>(exe: &str, path: PathBuf) -> Result<parser::Component, String> {
 		let mut ui_string = String::new();
 		fs::File::open(&path)
 			.unwrap()
@@ -236,18 +236,17 @@ fn load_single_ui_component<'a>(exe: &str, path: PathBuf) -> parser::Component {
 				.into();
 			component
 		} else {
-			eprintln!("{}: parse error", exe);
-			process::exit(1);
+			return Err(format!("{}: parse error", exe));
 		};
 
-		component
+		Ok(component)
 }
 
 fn resolve_ui_import<'a>(
 	exe: &str,
 	import: Import,
 	components: &'a mut HashMap<PathBuf,
-	parser::Component>) -> (String, PathBuf) {
+	parser::Component>) -> Result<(String, PathBuf), String> {
 	
 	let pathbuf = if let Ok(path) = fs::canonicalize(&import.path) {
 		Some(path)
@@ -257,38 +256,37 @@ fn resolve_ui_import<'a>(
 		None
 	};
 	let pathbuf = if pathbuf.is_none() || !pathbuf.as_ref().unwrap().is_file() {
-		eprintln!("{}: invalid path specified: {}", exe, import.path);
-		process::exit(1);
+		return Err(format!("{}: invalid path specified: {}", exe, import.path));
 	} else {
 		pathbuf.unwrap()
 	};
 	if let Some(component) = components.get(&pathbuf) {
-		return (component.name.clone(), pathbuf);
+		return Ok((component.name.clone(), pathbuf));
 	}
 
-	let mut component = load_single_ui_component(exe, pathbuf.clone());
+	let mut component = load_single_ui_component(exe, pathbuf.clone())?;
 	
 	while let Some(import) = component.import_decls.pop() {
 		let alias = import.alias.clone();
-		let (name, path) = resolve_ui_import(exe, import, components);
+		let (name, path) = resolve_ui_import(exe, import, components)?;
 		component.imports_map.insert(alias.unwrap_or(name), path);
 	}
 	
 	let name = component.name.clone();
 	components.insert(pathbuf.clone(), component);
-	(name, pathbuf)
+	Ok((name, pathbuf))
 }
 
 fn load_ui_component<'a>(
 	exe: &str,
 	path: &str,
 	imports: &mut HashMap<PathBuf,
-	parser::Component>) -> (PathBuf, parser::Component) {
+	parser::Component>) -> Result<(PathBuf, parser::Component), String> {
 	
 	let ui_import = Import { path: path.into(), alias: None };
-	let (_, path) = resolve_ui_import(exe, ui_import, imports);
+	let (_, path) = resolve_ui_import(exe, ui_import, imports)?;
 	let component = imports.remove(&path).unwrap();
-	(path, component)
+	Ok((path, component))
 }
 
 #[derive(Default)]
@@ -331,9 +329,9 @@ fn process_args() -> Options {
 	}
 }
 
-fn build(exe: &str, path: &str) -> Vec<PathBuf> {
+fn build(exe: &str, path: &str) -> Result<Vec<PathBuf>, String> {
 	let mut imports = HashMap::new();
-	let (path, component) = load_ui_component(&exe, &path, &mut imports);
+	let (path, component) = load_ui_component(&exe, &path, &mut imports)?;
 	// println!("{:#?}", component);
 
 	let module = Module::new(imports);
@@ -344,7 +342,7 @@ fn build(exe: &str, path: &str) -> Vec<PathBuf> {
 
 	let mut paths: Vec<_> = module.global_imports.into_iter().map(|(k, _)| k).collect();
 	paths.push(path);
-	paths
+	Ok(paths)
 }
 
 fn watch(exe: &str, path: &str) {
@@ -357,18 +355,28 @@ fn watch(exe: &str, path: &str) {
 	let mut prev_paths = Vec::new();
 
 	let mut build_once = || {
-		let paths = build(exe, path);
-		for path in prev_paths.iter() {
-			watcher.unwatch(path).unwrap();
+		match build(exe, path) {
+			Ok(paths) => {
+				for path in prev_paths.iter() {
+					watcher.unwatch(path).unwrap();
+				}
+				for path in paths.iter() {
+					watcher.watch(path, RecursiveMode::NonRecursive).unwrap();
+					println!("watching: {:?}", path);
+				}
+				prev_paths = paths;
+				true
+			},
+			Err(message) => {
+				eprintln!("{}", message);
+				false
+			}
 		}
-		for path in paths.iter() {
-			watcher.watch(path, RecursiveMode::NonRecursive).unwrap();
-			println!("watching: {:?}", path);
-		}
-		prev_paths = paths;
 	};
 	
-	build_once();
+	if build_once() == false {
+		return;
+	}
 
 	loop {
 		match rx.recv() {
@@ -389,7 +397,7 @@ fn main() {
 	let options = process_args();
 	if options.watch {
 		watch(&options.exe, &options.file);
-	} else {
-		build(&options.exe, &options.file);
+	} else if let Err(message) = build(&options.exe, &options.file) {
+		eprintln!("{}", message)
 	}
 }

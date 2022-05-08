@@ -280,7 +280,7 @@ impl RenderJs for Value {
 			Value::Binding(expr) => {
 				match expr {
 					Expr::Path(path) => {
-						write!(ctx.file, "d?.{}", path.join(".")).unwrap();
+						write!(ctx.file, "d?.{}", path.join("?.")).unwrap();
 					}
 				}
 			},

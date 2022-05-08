@@ -226,7 +226,7 @@ impl Value {
 	// }
 }
 
-use std::{ env, fs, process, path::PathBuf, io::Read };
+use std::{ fs, process, path::PathBuf, io::Read };
 
 fn load_single_ui_component<'a>(exe: &str, path: PathBuf) -> parser::Component {
 		let mut ui_string = String::new();
@@ -281,22 +281,61 @@ fn resolve_ui_import<'a>(exe: &str, import: Import, components: &'a mut HashMap<
 	(name, pathbuf)
 }
 
-fn load_ui_component<'a>(exe: &str, path: String, imports: &mut HashMap<PathBuf, parser::Component>) -> parser::Component {
-	let ui_import = Import { path, alias: None };
+fn load_ui_component<'a>(
+	exe: &str,
+	path: &str,
+	imports: &mut HashMap<PathBuf,
+	parser::Component>) -> (PathBuf, parser::Component) {
+	
+	let ui_import = Import { path: path.into(), alias: None };
 	let (_, path) = resolve_ui_import(exe, ui_import, imports);
-	imports.remove(&path).unwrap()
+	let component = imports.remove(&path).unwrap();
+	(path, component)
 }
 
-fn main() {
+#[derive(Default)]
+struct Options {
+	exe: String,
+	file: String,
+	watch: bool,
+}
 
-	let args: Vec<_> = env::args().collect();
-	if args.len() != 2 {
-		eprintln!("usage: {} <FILE>", args[0]);
+fn process_args() -> Options {
+	let mut args = std::env::args();
+	let exe = args.next().unwrap();
+	let mut file = None;
+	let mut watch = None;
+	let mut fail = false;
+
+	for arg in args {
+		if arg == "--watch" {
+			if watch.is_some() {
+				fail = true;
+			}
+			watch = Some(true);
+		} else {
+			if file.is_some() {
+				fail = true;
+			}
+			file = Some(arg);
+		}
+	}
+
+	if fail || file.is_none() {
+		eprintln!("usage: {} <FILE> [--watch]", exe);
 		process::exit(1);
 	}
-	
+
+	Options {
+		exe,
+		file: file.unwrap(),
+		watch: watch.unwrap_or_default(),
+	}
+}
+
+fn build(exe: &str, path: &str) -> Vec<PathBuf> {
 	let mut imports = HashMap::new();
-	let component = load_ui_component(&args[0], args[1].clone(), &mut imports);
+	let (path, component) = load_ui_component(&exe, &path, &mut imports);
 	// println!("{:#?}", component);
 
 	let module = Module::new(imports);
@@ -304,4 +343,59 @@ fn main() {
 	// println!("{:#?}", root);
 
 	web::render(root, &component.name);
+
+	let mut paths: Vec<_> = module.global_imports.into_iter().map(|(k, _)| k).collect();
+	paths.push(path);
+	paths
+}
+
+fn watch(exe: &str, path: &str) {
+	use notify::{Watcher, RecursiveMode, watcher};
+	use std::sync::mpsc::channel;
+	use std::time::Duration;
+
+	let (tx, rx) = channel();
+	let mut watcher = watcher(tx, Duration::from_secs(2)).unwrap();
+	let mut prev_paths = Vec::new();
+
+	let mut build_once = || {
+		let paths = build(exe, path);
+		for path in prev_paths.iter() {
+			watcher.unwatch(path).unwrap();
+		}
+		for path in paths.iter() {
+			watcher.watch(path, RecursiveMode::NonRecursive).unwrap();
+		}
+
+		println!("watching: {:?}", path);
+		for path in paths.iter() {
+			println!("watching: {:?}", path);
+		}
+
+		prev_paths = paths;
+	};
+	
+	build_once();
+
+	loop {
+		match rx.recv() {
+		   Ok(_) => {
+			   println!("rebuilding...");
+			   build_once();
+		   },
+		   Err(e) => {
+			   eprintln!("error: {:?}", e);
+			   process::exit(1);
+		   },
+		}
+	}
+}
+
+fn main() {
+	let options = process_args();
+	if options.watch {
+		watch(&options.exe, &options.file);
+	} else {
+		build(&options.exe, &options.file);
+	}
 }

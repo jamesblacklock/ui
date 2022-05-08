@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 nom = "^7.1.1"
 maplit = "^1.0.2"
+notify = "^4.0.17"
 
 [[bin]]
 name = "ui"

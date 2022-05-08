@@ -6,8 +6,12 @@
 		{ "include": "#strings" },
 		{ "include": "#blockcomments" },
 		{ "include": "#linecomments" },
-		{ "include": "#names" },
-		{ "include": "#events" }
+		{ "include": "#elements" },
+		{ "include": "#properties" },
+		{ "include": "#events" },
+		{ "include": "#lengths" },
+		{ "include": "#booleans" },
+		{ "include": "#brushes" }
 	],
 	"repository": {
 		"blockcomments": {
@@ -50,12 +54,28 @@
 			]
 		},
 		"events": {
-			"name": "entity.other.ui",
+			"name": "entity.name.function.ui",
 			"match": "@[a-zA-Z_][a-zA-Z0-9_]*\\b"
 		},
-		"names": {
+		"elements": {
+			"name": "entity.name.type.ui",
+			"match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b[\\s]*(?=({|if|for))"
+		},
+		"properties": {
 			"name": "variable.ui",
-			"match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b"
+			"match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b[\\s]*(?=:)"
+		},
+		"booleans": {
+			"name": "constant.language.ui",
+			"match": "true|false"
+		},
+		"brushes": {
+			"name": "constant.other.color.rgb-value.hex.ui",
+			"match": "#([\\da-fA-F]{3}|[\\da-fA-F]{6})\\b"
+		},
+		"lengths": {
+			"name": "constant.numeric.ui",
+			"match": "\\d+px"
 		}
 	},
 	"scopeName": "source.ui"

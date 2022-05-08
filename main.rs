@@ -350,12 +350,12 @@ fn build(exe: &str, path: &str) -> Vec<PathBuf> {
 }
 
 fn watch(exe: &str, path: &str) {
-	use notify::{Watcher, RecursiveMode, watcher};
+	use notify::{Watcher, RecursiveMode, DebouncedEvent, watcher};
 	use std::sync::mpsc::channel;
 	use std::time::Duration;
 
 	let (tx, rx) = channel();
-	let mut watcher = watcher(tx, Duration::from_secs(2)).unwrap();
+	let mut watcher = watcher(tx, Duration::from_secs(1)).unwrap();
 	let mut prev_paths = Vec::new();
 
 	let mut build_once = || {
@@ -379,7 +379,7 @@ fn watch(exe: &str, path: &str) {
 
 	loop {
 		match rx.recv() {
-		   Ok(_) => {
+		   Ok(DebouncedEvent::Write(_)) => {
 			   println!("rebuilding...");
 			   build_once();
 		   },
@@ -387,6 +387,7 @@ fn watch(exe: &str, path: &str) {
 			   eprintln!("error: {:?}", e);
 			   process::exit(1);
 		   },
+		   _ => {},
 		}
 	}
 }

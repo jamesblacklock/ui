@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use super::{
 	Value,
 	Element,
+	Expr,
 	elements::{
 		// Window,
 		Rect,
@@ -17,7 +18,7 @@ use super::{
 		ElementData,
 		Empty,
 		Repeater,
-		Component2,
+		Component,
 	}
 };
 
@@ -189,8 +190,12 @@ impl RenderJs for Value {
 				let s = s.replace("\n", "\\n");
 				write!(ctx.file, "\"{s}\"").unwrap();
 			},
-			Value::Binding(name) => {
-				write!(ctx.file, "d?.{name}").unwrap();
+			Value::Binding(expr) => {
+				match expr {
+					Expr::Path(path) => {
+						write!(ctx.file, "d?.{}", path.join(".")).unwrap();
+					}
+				}
 			},
 			Value::Color(r, g, b) => {
 				write!(ctx.file, "{{ r: {r}, g: {g}, b: {b} }}").unwrap();
@@ -361,7 +366,7 @@ impl RenderWeb for Text {
 	}
 }
 
-impl RenderWeb for Component2 {
+impl RenderWeb for Component {
 	fn render(&self, e: ElementData, ctx: &mut WebRenderer) -> Option<HtmlElement> {
 		ctx.render_children(e.children);
 		None

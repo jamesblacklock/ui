@@ -9,7 +9,7 @@ mod elements;
 mod web;
 
 use elements as el;
-use elements::{Element, Component2};
+use elements::{Element, Component};
 
 #[derive(Clone)]
 pub struct LookupScope<'a> {
@@ -23,7 +23,7 @@ impl <'a> LookupScope<'a> {
 			if let Some(file_path) = self.imports.unwrap().get(&parse_tree.path[0]) {
 				let component = self.module.global_imports.get(file_path).unwrap();
 				let scope = LookupScope { module: self.module, imports: Some(&component.imports_map) };
-				return Ok(Component2::construct(&scope, &component.parse_tree));
+				return Ok(Component::construct(&scope, &component.parse_tree, parse_tree));
 			}
 		}
 
@@ -33,7 +33,7 @@ impl <'a> LookupScope<'a> {
 
 pub struct Module {
 	map: HashMap<String, Item>,
-	global_imports: HashMap<PathBuf, Component>,
+	global_imports: HashMap<PathBuf, parser::Component>,
 }
 
 #[derive(Debug)]
@@ -48,7 +48,7 @@ pub enum Item {
 }
 
 impl Module {
-	pub fn new(global_imports: HashMap<PathBuf, Component>) -> Self {
+	pub fn new(global_imports: HashMap<PathBuf, parser::Component>) -> Self {
 		Self {
 			global_imports,
 			map: hashmap![
@@ -123,13 +123,18 @@ impl Module {
 // }
 
 #[derive(Debug, Clone)]
+pub enum Expr {
+	Path(Vec<String>),
+}
+
+#[derive(Debug, Clone)]
 pub enum Value {
 	Px(i32),
 	Float(f32),
 	Color(u8, u8, u8),
 	String(String),
 	Boolean(bool),
-	Binding(String),
+	Binding(Expr),
 	Null,
 }
 
@@ -212,15 +217,7 @@ impl Value {
 
 use std::{ env, fs, process, path::PathBuf, io::Read };
 
-#[derive(Debug)]
-pub struct Component {
-	pub name: String,
-	pub parse_tree: parser::Element,
-	pub import_decls: Vec<Import>,
-	pub imports_map: HashMap<String, PathBuf>,
-}
-
-fn load_single_ui_component<'a>(exe: &str, path: PathBuf) -> Component {
+fn load_single_ui_component<'a>(exe: &str, path: PathBuf) -> parser::Component {
 		let mut ui_string = String::new();
 		fs::File::open(&path)
 			.unwrap()
@@ -242,7 +239,7 @@ fn load_single_ui_component<'a>(exe: &str, path: PathBuf) -> Component {
 		component
 }
 
-fn resolve_ui_import<'a>(exe: &str, import: Import, components: &'a mut HashMap<PathBuf, Component>) -> (String, PathBuf) {
+fn resolve_ui_import<'a>(exe: &str, import: Import, components: &'a mut HashMap<PathBuf, parser::Component>) -> (String, PathBuf) {
 	let pathbuf = if let Ok(path) = fs::canonicalize(&import.path) {
 		Some(path)
 	} else if let Ok(path) = fs::canonicalize(import.path.clone() + ".ui") {
@@ -273,7 +270,7 @@ fn resolve_ui_import<'a>(exe: &str, import: Import, components: &'a mut HashMap<
 	(name, pathbuf)
 }
 
-fn load_ui_component<'a>(exe: &str, path: String, imports: &mut HashMap<PathBuf, Component>) -> Component {
+fn load_ui_component<'a>(exe: &str, path: String, imports: &mut HashMap<PathBuf, parser::Component>) -> parser::Component {
 	let ui_import = Import { path, alias: None };
 	let (_, path) = resolve_ui_import(exe, ui_import, imports);
 	imports.remove(&path).unwrap()
@@ -293,7 +290,7 @@ fn main() {
 
 	let module = Module::new(imports);
 	let root = el::build_component(&module, &component);
-	println!("{:#?}", root);
+	// println!("{:#?}", root);
 
 	web::render(root, &component.name);
 }

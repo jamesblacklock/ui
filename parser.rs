@@ -47,7 +47,7 @@ use nom::{
 	},
 };
 
-use super::{Value, Import, Component};
+use super::{Value, Expr, Import};
 
 type ParseError<'a> = nom::Err<nom::error::Error<&'a str>>;
 
@@ -85,7 +85,14 @@ pub struct Element {
 	pub properties: HashMap<String, Value>,
 	pub event_handlers: HashMap<String, Value>,
 	pub children: Vec<Element>,
-	// pub imports_map: Option<HashMap<String, PathBuf>>,
+}
+
+#[derive(Debug)]
+pub struct Component {
+	pub name: String,
+	pub parse_tree: Element,
+	pub import_decls: Vec<Import>,
+	pub imports_map: HashMap<String, std::path::PathBuf>,
 }
 
 fn import(input: &str) -> IResult<&str, Import> {
@@ -335,14 +342,24 @@ fn boolean(input: &str) -> IResult<&str, Value> {
 	(input)
 }
 
-fn expr(input: &str) -> IResult<&str, &str> {
-	name(input)
+fn expr(input: &str) -> IResult<&str, Expr> {
+	map(
+		path,
+		|v| {
+			Expr::Path(
+				v.into_iter()
+					.map(|e| e.to_owned())
+					.collect()
+				)
+		}
+	)
+	(input)
 }
 
 fn binding(input: &str) -> IResult<&str, Value> {
 	delimited(
 		pair(char('('), skip_space),
-		map(expr, |e| Value::Binding(e.to_owned())),
+		map(expr, |e| Value::Binding(e)),
 		pair(skip_space, char(')')),
 	)
 	(input)

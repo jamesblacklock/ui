@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 
 mod parser;
+mod html_parser;
 mod elements;
 mod web;
 
@@ -15,7 +16,7 @@ use elements::{Element, Component};
 pub struct LookupScope<'a> {
 	module: &'a Module,
 	imports: Option<&'a HashMap<String, PathBuf>>,
-	instance: Option<&'a parser::Element>,
+	instance: Option<(&'a LookupScope<'a>, &'a parser::Element)>,
 }
 
 impl <'a> LookupScope<'a> {
@@ -26,7 +27,7 @@ impl <'a> LookupScope<'a> {
 				let scope = LookupScope {
 					module: self.module,
 					imports: Some(&component.imports_map),
-					instance: Some(parse_tree),
+					instance: Some((self, parse_tree)),
 				};
 				return Ok(Component::construct(&scope, &component.parse_tree));
 			}

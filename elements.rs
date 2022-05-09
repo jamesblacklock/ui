@@ -148,7 +148,7 @@ fn build_elements(scope: &LookupScope, parse_tree: &[ParserContent]) -> Vec<Elem
 				}
 			},
 			ParserContent::Children(c) => {
-				if let Some(instance) = scope.instance {
+				if let Some((scope, instance)) = scope.instance {
 					let children_elements = build_elements(scope, &instance.children);
 						// .into_iter()
 						// .for_each(|e| elements.push(e));
@@ -269,7 +269,7 @@ impl Component {
 	pub fn construct(scope: &LookupScope, parse_tree: &ParserElement) -> (Box<dyn ElementImpl>, Vec<Element>) {
 		let mut children = build_element(scope, parse_tree).map(|e| vec![e]).unwrap_or(Vec::new());
 		let element = &mut children[0];
-		element.inherit_properties(scope.instance.unwrap());
+		element.inherit_properties(scope.instance.unwrap().1);
 		(Box::new(Component {}), children)
 	}
 }

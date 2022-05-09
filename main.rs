@@ -124,6 +124,7 @@ pub enum Expr {
 pub enum Value {
 	Px(i32),
 	Float(f32),
+	Int(i32),
 	Color(u8, u8, u8),
 	String(String),
 	Boolean(bool),

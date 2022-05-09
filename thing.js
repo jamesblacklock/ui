@@ -1,13 +1,44 @@
 (w => {
 w.Thing = w.Thing || {
+	__iter(n) {
+		if(n.constructor == Array) {
+			return n.entries();
+		} else if(n.constructor == Number) {
+			let i = 0;
+			return {
+				[Symbol.iterator]() {
+					return {
+						next() {
+							if(i < n) {
+								let res = { done: false, value: [i, i] };
+								i++;
+								return res;
+							} else {
+								return { done: true, value: undefined };
+							}
+						}
+					};
+				}
+			};
+		} else {
+			return { next: () => ({ done: true, value: undefined }) }
+		}
+	},
 	__begin(p) {
 		p.__l = null;
 		p.__e = p.__e || [];
+		p.__ctx = p.__ctx || {};
+	},
+	__ctx(p, e) {
+		e.__ctx = {
+			parent: p.__ctx,
+		};
 	},
 	__get(p, t, i, c) {
 		let l = p.__e;
 		if(p.__g != null) {
 			l = p.__e[p.__g];
+			p.__i = i;
 		}
 		if(!l[i]) {
 			l[i] = t ? document.createElement(t) : document.createTextNode("");
@@ -21,6 +52,7 @@ w.Thing = w.Thing || {
 	__in(p, t, i, c) {
 		let e = w.Thing.__get(p, t, i, c);
 		w.Thing.__begin(e);
+		w.Thing.__ctx(p, e);
 		if(e.__in) {
 			p.__l = e;
 			return e;
@@ -53,9 +85,9 @@ w.Thing = w.Thing || {
 			p.__e[i] = [];
 		}
 	},
-	__endGroup(p, n) {
+	__endGroup(p) {
 		let l = p.__e[p.__g];
-		for(let i = n; i<l.length; i++) {
+		for(let i = p.__i; i<l.length; i++) {
 			l[i].remove();
 			l[i].__in = false;
 		}

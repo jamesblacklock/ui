@@ -100,14 +100,17 @@ impl HtmlElement {
 
 		if let Some(Repeater { collection, .. }) = self.repeater.as_ref() {
 			render_value_js(ctx,
-				format!("{ind}Thing.__beginGroup(p, i);\n{ind}for(i=0; i<"),
+				format!("{ind}Thing.__beginGroup(p, i);\n{ind}for(let [i, item] of Thing.__iter("),
 				collection,
-				format!("?.length; i++) {{\n{ind}\t(d => {{\n"));
+				format!(")) {{\n{ind}\t(d => {{\n"));
 			ctx.indent += 2;
 			ind = ctx.indent();
 		}
 		
-		writeln!(ctx.file, "{ind}let e = Thing.__in(p, \"{}\", i);", self.tag).unwrap();
+		writeln!(ctx.file, "\
+			{ind}let e = Thing.__in(p, \"{}\", i);\n\
+			{ind}d.parent = e.__ctx.parent;\n\
+			{ind}d.self = e.__ctx;", self.tag).unwrap();
 
 		self.render_style_props(ctx);
 
@@ -134,17 +137,14 @@ impl HtmlElement {
 			}
 		}
 
-		if let Some(Repeater { index, item, collection }) = self.repeater.as_ref() {
+		if let Some(Repeater { index, item, .. }) = self.repeater.as_ref() {
 			ctx.indent -= 2;
 			ind = ctx.indent();
 			let index = index.clone().map(|i| format!("{i}: i, ")).unwrap_or_default();
-			render_value_js(ctx,
-				format!("{ind}\t}})({{ ...d, {index}{item}: "),
-				collection,
-				format!("[i] ?? {{}} }});\n"));
 			writeln!(ctx.file, "\
+				{ind}\t}})({{ ...d, {index}{item}: item }});\n\
 				{ind}}}\n\
-				{ind}Thing.__endGroup(p, i);").unwrap();
+				{ind}Thing.__endGroup(p);").unwrap();
 		}
 
 		if self.condition.is_some() {
@@ -289,6 +289,9 @@ impl RenderJs for Value {
 			},
 			Value::Px(px) => {
 				write!(ctx.file, "{{ length: {px}, unit: \"px\" }}").unwrap();
+			},
+			Value::Int(n) => {
+				write!(ctx.file, "{}", n).unwrap();
 			},
 			Value::Null => {
 				write!(ctx.file, "null").unwrap();

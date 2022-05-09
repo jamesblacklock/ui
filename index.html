@@ -1,25 +1,27 @@
 <script src="./thing.js"></script>
 <script src="./hello.js"></script>
 <div id="hello"></div>
+<div id="blah"></div>
 <script>
 	const { hello } = Thing;
 	let element = document.getElementById("hello");
 	let data = {
-		n: 300,
-		show_span: true,
-		some_list: ["a", "b", "c", "d"],
-		toggle_visibility() {
-			this.show_span = !this.show_span;
-			window.thing = hello(element, data);
-		},
-		add_item() {
-			this.some_list.push(Math.floor(Math.random() * 10));
-			window.thing = hello(element, data);
-		},
-		remove_item() {
-			this.some_list.pop();
-			window.thing = hello(element, data);
-		}
+		// n: 300,
+		// show_span: true,
+		// some_list: ["a", "b", "c", "d"],
+		// toggle_visibility() {
+		// 	this.show_span = !this.show_span;
+		// 	window.thing = hello(element, data);
+		// },
+		// add_item() {
+		// 	this.some_list.push(Math.floor(Math.random() * 10));
+		// 	window.thing = hello(element, data);
+		// },
+		// remove_item() {
+		// 	this.some_list.pop();
+		// 	window.thing = hello(element, data);
+		// }
 	};
-	hello(element, data);
+	hello(element, { pos: { x: "100px" } });
+	hello(document.getElementById("blah"), { pos: { x: "800px" } })
 </script>

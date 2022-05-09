@@ -137,7 +137,7 @@ impl Element {
 	}
 }
 
-fn build_elements(scope: &LookupScope, parse_tree: &Vec<ParserContent>) -> Vec<Element> {
+fn build_elements(scope: &LookupScope, parse_tree: &[ParserContent]) -> Vec<Element> {
 	let mut elements = Vec::new();
 	for item in parse_tree {
 		match item {
@@ -147,11 +147,20 @@ fn build_elements(scope: &LookupScope, parse_tree: &Vec<ParserContent>) -> Vec<E
 					Err(message) => eprintln!("Error: {}", message)
 				}
 			},
-			ParserContent::Children(_c) => {
+			ParserContent::Children(c) => {
 				if let Some(instance) = scope.instance {
-					build_elements(scope, &instance.children)
-						.into_iter()
-						.for_each(|e| elements.push(e));
+					let children_elements = build_elements(scope, &instance.children);
+						// .into_iter()
+						// .for_each(|e| elements.push(e));
+					let mut count = 0;
+					let limit = if c.single { 1 } else { i32::MAX };
+					for e in children_elements {
+						if count >= limit {
+							break;
+						}
+						elements.push(e);
+						count += 1;
+					}
 				}
 			},
 		}

@@ -357,7 +357,7 @@ fn watch(exe: &str, path: &str) {
 	use std::time::Duration;
 
 	let (tx, rx) = channel();
-	let mut watcher = watcher(tx, Duration::from_secs(1)).unwrap();
+	let mut watcher = watcher(tx, Duration::from_millis(500)).unwrap();
 	let mut prev_paths = Vec::new();
 
 	let mut build_once = || {

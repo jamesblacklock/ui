@@ -18,11 +18,12 @@ use nom::{
 	bytes::complete::{
 		tag,
 	},
-	number::complete::{
-		float,
-	},
+	// number::complete::{
+	// 	float,
+	// },
 	multi::{
 		many0,
+		separated_list1,
 		many1_count,
 	},
 	sequence::{
@@ -84,7 +85,7 @@ pub struct Element {
 	pub repeater: Option<Repeater>,
 	pub properties: HashMap<String, Value>,
 	pub event_handlers: HashMap<String, Value>,
-	pub children: Vec<Element>,
+	pub children: Vec<Content>,
 }
 
 #[derive(Debug)]
@@ -197,8 +198,70 @@ struct EventHandler<'a> {
 	value: Value,
 }
 
-fn content(input: &str) -> IResult<&str, Element> {
-	alt((text_content, element))
+#[derive(Debug)]
+pub struct Children {
+	single: bool,
+	filter: Option<Vec<String>>,
+}
+
+#[derive(Debug)]
+pub enum Content {
+	Element(Element),
+	Children(Children),
+}
+
+fn content(input: &str) -> IResult<&str, Content> {
+	alt((
+		map(text_content, |e| Content::Element(e)),
+		map(element, |e| Content::Element(e)),
+		map(children, |e| Content::Children(e)),
+	))
+	(input)
+}
+
+fn children(input: &str) -> IResult<&str, Children> {
+	alt((
+		map(
+			delimited(
+				tuple((
+					tag("@child"),
+					skip_space,
+					char('('),
+					skip_space,
+				)),
+				separated_list1(char(','), map(name, |e| e.to_owned())),
+				pair(
+					skip_space,
+					char(')'),
+				),
+			),
+			|filter| Children { single: true, filter: Some(filter) },
+		),
+		map(
+			delimited(
+				tuple((
+					tag("@children"),
+					skip_space,
+					char('('),
+					skip_space,
+				)),
+				separated_list1(char(','), map(name, |e| e.to_owned())),
+				pair(
+					skip_space,
+					char(')'),
+				),
+			),
+			|filter| Children { single: false, filter: Some(filter) },
+		),
+		map(
+			terminated(tag("@child"), not(alphanumeric1)),
+			|_| Children { single: true, filter: None },
+		),
+		map(
+			terminated(tag("@children"), not(alphanumeric1)),
+			|_| Children { single: false, filter: None },
+		),
+	))
 	(input)
 }
 
@@ -218,7 +281,7 @@ fn repeater(input: &str) -> IResult<&str, (Option<&str>, &str, Value)> {
 			terminated(name, skip_space),
 			preceded(
 				terminated(tag("in"), skip_space),
-				terminated(binding, skip_space),
+				terminated(value, skip_space),
 			),
 		))
 	)
@@ -292,7 +355,8 @@ fn name(input: &str) -> IResult<&str, &str> {
 fn value(input: &str) -> IResult<&str, Value> {
 	alt((
 		px,
-		map(float, |e| Value::Float(e)),
+		// map(float, |e| Value::Float(e)),
+		int,
 		map(string, |e: &str| Value::String(e.to_owned())),
 		color,
 		boolean,
@@ -305,6 +369,14 @@ fn px(input: &str) -> IResult<&str, Value> {
 	terminated(
 		map(i32, |e| Value::Px(e)),
 		tag("px"),
+	)
+	(input)
+}
+
+fn int(input: &str) -> IResult<&str, Value> {
+	terminated(
+		map(i32, |e| Value::Int(e)),
+		not(alphanumeric1),
 	)
 	(input)
 }

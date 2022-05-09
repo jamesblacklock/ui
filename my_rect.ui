@@ -6,4 +6,6 @@ rect {
     background: #b00;
 
     abc { color: #fff; }
+    
+    @children
 }

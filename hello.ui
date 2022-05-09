@@ -1,10 +1,14 @@
+import "./my_rect" as red_rect;
+
 layout {
     width: 600px;
     height: 200px;
     x: (pos.x); y: (pos.y);
     background: #ccc;
-    span {"1"} span {"2"} span {"3"}
-}
+
+    red_rect {
+        span {"hello!"}
+    }
 
     span for i in 5 {
         color: (self.parent.span_color);

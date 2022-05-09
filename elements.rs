@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use super::{
 	web::{RenderWeb, WebRenderer, HtmlElement},
 	parser::Element as ParserElement,
+	parser::Content as ParserContent,
 	parser::Component as ParserComponent,
 	Module,
 	LookupScope,
@@ -67,7 +68,7 @@ impl Default for Element {
 
 impl Element {
 	fn construct_component(scope: LookupScope, parse_tree: &ParserComponent) -> Result<Self, String> {
-		let scope = LookupScope { module: scope.module, imports: Some(&parse_tree.imports_map) };
+		let scope = LookupScope { module: scope.module, imports: Some(&parse_tree.imports_map), instance: None };
 		Element::construct_element(scope, &parse_tree.parse_tree)
 	}
 
@@ -136,12 +137,23 @@ impl Element {
 	}
 }
 
-fn build_elements(scope: &LookupScope, parse_tree: &Vec<ParserElement>) -> Vec<Element> {
+fn build_elements(scope: &LookupScope, parse_tree: &Vec<ParserContent>) -> Vec<Element> {
 	let mut elements = Vec::new();
 	for item in parse_tree {
-		match Element::construct_element(scope.clone(), item) {
-			Ok(element) => elements.push(element),
-			Err(message) => eprintln!("Error: {}", message)
+		match item {
+			ParserContent::Element(e) => {
+				match Element::construct_element(scope.clone(), e) {
+					Ok(element) => elements.push(element),
+					Err(message) => eprintln!("Error: {}", message)
+				}
+			},
+			ParserContent::Children(_c) => {
+				if let Some(instance) = scope.instance {
+					build_elements(scope, &instance.children)
+						.into_iter()
+						.for_each(|e| elements.push(e));
+				}
+			},
 		}
 	}
 	elements
@@ -155,7 +167,7 @@ fn build_element(scope: &LookupScope, parse_tree: &ParserElement) -> Option<Elem
 }
 
 pub fn build_component(module: &Module, parse_tree: &ParserComponent) -> Element {
-	let scope = LookupScope { module, imports: Some(&parse_tree.imports_map) };
+	let scope = LookupScope { module, imports: Some(&parse_tree.imports_map), instance: None };
 	match Element::construct_component(scope, parse_tree) {
 		Ok(element) => element,
 		Err(message) => {
@@ -245,14 +257,10 @@ impl ElementImpl for Text {}
 pub struct Component {}
 
 impl Component {
-	pub fn construct(
-		scope: &LookupScope,
-		component_parse_tree: &ParserElement,
-		instance_parse_tree: &ParserElement,
-	) -> (Box<dyn ElementImpl>, Vec<Element>) {
-		let mut children = build_element(scope, component_parse_tree).map(|e| vec![e]).unwrap_or(Vec::new());
+	pub fn construct(scope: &LookupScope, parse_tree: &ParserElement) -> (Box<dyn ElementImpl>, Vec<Element>) {
+		let mut children = build_element(scope, parse_tree).map(|e| vec![e]).unwrap_or(Vec::new());
 		let element = &mut children[0];
-		element.inherit_properties(instance_parse_tree);
+		element.inherit_properties(scope.instance.unwrap());
 		(Box::new(Component {}), children)
 	}
 }

@@ -15,6 +15,7 @@ use elements::{Element, Component};
 pub struct LookupScope<'a> {
 	module: &'a Module,
 	imports: Option<&'a HashMap<String, PathBuf>>,
+	instance: Option<&'a parser::Element>,
 }
 
 impl <'a> LookupScope<'a> {
@@ -22,8 +23,12 @@ impl <'a> LookupScope<'a> {
 		if self.imports.is_some() && parse_tree.path.len() == 1 {
 			if let Some(file_path) = self.imports.unwrap().get(&parse_tree.path[0]) {
 				let component = self.module.global_imports.get(file_path).unwrap();
-				let scope = LookupScope { module: self.module, imports: Some(&component.imports_map) };
-				return Ok(Component::construct(&scope, &component.parse_tree, parse_tree));
+				let scope = LookupScope {
+					module: self.module,
+					imports: Some(&component.imports_map),
+					instance: Some(parse_tree),
+				};
+				return Ok(Component::construct(&scope, &component.parse_tree));
 			}
 		}
 

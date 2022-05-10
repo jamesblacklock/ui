@@ -47,7 +47,7 @@ class _Length {
 		} else {
 			value = 0;
 		}
-		if(Number.isNaN(this.value)) {
+		if(Number.isNaN(value)) {
 			value = 0;
 		}
 		Object.defineProperty(this, 'unit', { value: unit, enumerable: true });
@@ -315,7 +315,7 @@ class _ObjectInstance {
 			this.__onCommit();
 		}
 		this.__ready = true;
-		console.log('dirty:', dirty);
+		// console.log('dirty:', dirty);
 		return dirty;
 	}
 }

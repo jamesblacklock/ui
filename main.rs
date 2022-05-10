@@ -5,7 +5,6 @@
 use std::collections::HashMap;
 
 mod parser;
-mod html_parser;
 mod elements;
 mod web;
 
@@ -131,8 +130,16 @@ pub enum Type {
 	Length,
 	Brush,
 	String,
+	Boolean,
+	Direction,
 	Iter(Box<Type>),
 	Object(HashMap<String, Type>),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum Direction {
+	Horizontal,
+	Vertical,
 }
 
 #[derive(Debug, Clone)]
@@ -144,6 +151,7 @@ pub enum Value {
 	String(String),
 	Boolean(bool),
 	Binding(Expr),
+	Direction(Direction),
 	Null,
 	Unset,
 }

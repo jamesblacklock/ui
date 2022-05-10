@@ -9,6 +9,7 @@ use super::{
 	Module,
 	LookupScope,
 	Value,
+	Direction,
 	Expr,
 	Type,
 };
@@ -102,6 +103,7 @@ impl Element {
 			item: e.item.clone(),
 			collection: e.collection.clone(),
 		});
+		let condition = parse_tree.condition.clone();
 
 		let property_types = element_impl.property_types();
 		let mut data_types = HashMap::new();
@@ -140,9 +142,18 @@ impl Element {
 			}
 		}
 
+		if let Some(condition) = condition.as_ref() {
+			match condition {
+				Value::Binding(Expr::Path(path)) => {
+					update_data_type(&mut data_types, path, &Type::Boolean);
+				},
+				_ => {},
+			}
+		}
+
 		Ok(Element {
 			tag: parse_tree.path.join("."),
-			condition: parse_tree.condition.clone(),
+			condition,
 			repeater,
 			data_types,
 			temporary_hacky_click_handler: parse_tree.event_handlers.get("click").map(|e| e.clone()),
@@ -385,6 +396,7 @@ pub struct Layout {
 	pub height: Value,
 	pub x: Value,
 	pub y: Value,
+	pub direction: Value,
 }
 
 impl Layout {
@@ -394,6 +406,7 @@ impl Layout {
 			y: Value::Px(0),
 			width: Value::Px(0),
 			height: Value::Px(0),
+			direction: Value::Direction(Direction::Horizontal),
 		};
 		(Box::new(data), build_elements(scope, &parse_tree.children))
 	}
@@ -406,6 +419,7 @@ impl ElementImpl for Layout {
 			"y".into() => Type::Length,
 			"width".into() => Type::Length,
 			"height".into() => Type::Length,
+			"direction".into() => Type::Direction,
 		]
 	}
 
@@ -421,6 +435,9 @@ impl ElementImpl for Layout {
 		}
 		if let Some(height) = properties.get("height") {
 			self.height = height.clone();
+		}
+		if let Some(direction) = properties.get("direction") {
+			self.direction = direction.clone();
 		}
 	}
 }

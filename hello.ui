@@ -6,6 +6,8 @@ layout {
     height: 200px;
     x: (pos.x); y: (pos.y);
     background: #ccc;
+    // direction: .vertical;
+    direction: (direction);
 
     red_rect {
         span {"hello!"}
@@ -16,6 +18,8 @@ layout {
         //color: (self.parent.span_color);
         (i)
     }
+
+    red_rect if (show_second_rect) {}
 }
 
 // import "./abc";

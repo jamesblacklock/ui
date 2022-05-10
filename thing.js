@@ -53,11 +53,32 @@ class _Length {
 		Object.defineProperty(this, 'unit', { value: unit, enumerable: true });
 		Object.defineProperty(this, 'value', { value: value, enumerable: true });
 	}
+	css() {
+		return this.jsValue();
+	}
 	jsValue() {
 		return `${this.value}${this.unit}`;
 	}
 	flatJsValue() {
 		return `${this.value}${this.unit}`;
+	}
+}
+
+class _Direction {
+	static __default() {
+		return new _Direction(false);
+	}
+	constructor(arg) {
+		this.vertical = arg == 'vertical';
+	}
+	css() {
+		return this.vertical ? 'column' : 'row';
+	}
+	jsValue() {
+		return this.vertical ? 'vertical' : 'horizontal';
+	}
+	flatJsValue() {
+		return this.jsValue();
 	}
 }
 
@@ -124,6 +145,25 @@ class _Iter {
 		return new _Iterator(this, []);
 	}
 }
+
+// function _Array(type, arr) {
+// 	let it = new _Iterator(type, arr);
+// 	return new Proxy(it, {
+// 		get(target, i) {
+// 			switch(i) {
+// 				case "__isIter":
+// 				case "collection":
+// 				case "type":
+// 				case "iter":
+// 				case "jsValue":
+// 				case "flatJsValue":
+// 					return target[i];
+// 				default:
+// 					return target.collection[i];
+// 			}
+// 		}
+// 	});
+// }
 
 class _Iterator {
 	__isIter = true;
@@ -243,12 +283,14 @@ class _ObjectInstance {
 			values = type;
 			type = deriveType(type);
 		}
+		if(onCommit) {
+			onCommit = onCommit.bind(null, this);
+		}
 		Object.defineProperty(this, '__type', {enumerable: false, writable: true, value: type});
 		Object.defineProperty(this, '__changes', {enumerable: false, writable: true, value: {}});
 		Object.defineProperty(this, '__props', {enumerable: false, writable: true, value: {}});
 		Object.defineProperty(this, '__isData', {enumerable: false, writable: true, value: true});
-		Object.defineProperty(this, '__onCommit', {enumerable: false, writable: true, value: onCommit.bind(null, this)});
-		Object.defineProperty(this, '__ready', {enumerable: false, writable: true, value: false});
+		Object.defineProperty(this, '__onCommit', {enumerable: false, writable: true, value: onCommit});
 		for(let key in type.props) {
 			Object.defineProperty(this, key, {
 				enumerable: true,
@@ -262,24 +304,27 @@ class _ObjectInstance {
 					return result;
 				},
 				set(value) {
-					value = coerce(value, this.__type.props[key], () => this.commit());
+					value = coerce(value, this.__type.props[key], onCommit);
 					if(equals(value.jsValue(), this.__props[key].jsValue())) {
 						delete this.__changes[key];
 					} else {
 						this.__changes[key] = value;
 					}
-					// this.commit();
+					this.commit();
 				},
 			});
-			this.__props[key] = type.props[key].__default(() => this.commit());
+			this.__props[key] = type.props[key].__default(onCommit);
 		}
 		Object.seal(this);
 		if(values != null) {
 			for(let key in values) {
-				this[key] = values[key];
+				if(key in this.__props) {
+					this[key] = values[key];
+				} else {
+					console.error('tried to set invalid property:', key);
+				}
 			}
 		}
-		this.__ready = true;
 		this.commit();
 	}
 
@@ -296,12 +341,8 @@ class _ObjectInstance {
 	}
 
 	commit() {
-		if(!this.__ready) {
-			return false;
-		}
 		let changes = Object.entries(this.__changes);
 		let dirty = changes.length > 0;
-		this.__ready = false;
 		for(let [key, value] of changes) {
 			this.__props[key] = value;
 		}
@@ -314,7 +355,6 @@ class _ObjectInstance {
 		if(dirty && this.__onCommit) {
 			this.__onCommit();
 		}
-		this.__ready = true;
 		// console.log('dirty:', dirty);
 		return dirty;
 	}
@@ -329,6 +369,8 @@ w.Thing = w.Thing || {
 		_Length,
 		_Iter,
 		_Iterator,
+		_Direction,
+		// _Array,
 		_Object,
 		_ObjectInstance,
 	},
@@ -389,6 +431,7 @@ w.Thing = w.Thing || {
 	},
 	__beginGroup(p, i) {
 		p.__g = i;
+		p.__i = -1;
 		if(!p.__e[i]) {
 			p.__e[i] = [];
 		}

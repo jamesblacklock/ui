@@ -42,13 +42,19 @@ use nom::{
 		peek,
 		recognize,
 		verify,
+		fail,
 	},
 	branch::{
 		alt,
 	},
 };
 
-use super::{Value, Expr, Import};
+use super::{
+	Direction,
+	Value,
+	Expr,
+	Import
+};
 
 type ParseError<'a> = nom::Err<nom::error::Error<&'a str>>;
 
@@ -62,6 +68,10 @@ pub fn parse(input: &str) -> Result<Component, ParseError> {
 	)
 	(input)
 	.map(|(_, result)| result)?;
+
+	if element.condition.is_some() || element.repeater.is_some() {
+		fail::<_, &str, _>(input)?;
+	}
 
 	Ok(Component {
 		name: String::new(),
@@ -200,8 +210,8 @@ struct EventHandler<'a> {
 
 #[derive(Debug)]
 pub struct Children {
-	single: bool,
-	filter: Option<Vec<String>>,
+	pub single: bool,
+	pub filter: Option<Vec<String>>,
 }
 
 #[derive(Debug)]
@@ -360,7 +370,16 @@ fn value(input: &str) -> IResult<&str, Value> {
 		map(string, |e: &str| Value::String(e.to_owned())),
 		color,
 		boolean,
+		enum_value,
 		binding,
+	))
+	(input)
+}
+
+fn enum_value(input: &str) -> IResult<&str, Value> {
+	alt((
+		map(tag(".horizontal"), |_| Value::Direction(Direction::Horizontal)),
+		map(tag(".vertical"),   |_| Value::Direction(Direction::Vertical)),
 	))
 	(input)
 }

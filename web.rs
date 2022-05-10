@@ -7,6 +7,7 @@ use super::{
 	Element,
 	Expr,
 	Type,
+	Direction,
 	elements::{
 		// Window,
 		Rect,
@@ -42,8 +43,14 @@ fn render_data_type(ctx: &mut WebRenderer, data_type: Type) {
 		Type::Length => {
 			write!(ctx.file, "w.Thing.__types._Length").unwrap();
 		},
+		Type::Direction => {
+			write!(ctx.file, "w.Thing.__types._Direction").unwrap();
+		},
 		Type::String => {
 			write!(ctx.file, "w.Thing.__types._String").unwrap();
+		},
+		Type::Boolean => {
+			write!(ctx.file, "w.Thing.__types._Boolean").unwrap();
 		},
 		Type::Iter(t) => {
 			write!(ctx.file, "new w.Thing.__types._Iter(").unwrap();
@@ -63,7 +70,7 @@ pub fn render<S: Into<String>>(root: Element, name: S) {
 	let root_html = root.render_web(&mut ctx).unwrap();
 
 	writeln!(ctx.file, "(w => {{\n\
-		w.Thing.{} = p => {{\n\
+		w.Thing.{} = (p, init) => {{\n\
 			\tfunction update(d) {{\n\
 				\t\tlet i = 0;\n\
 				\t\tThing.__begin(p);", ctx.name).unwrap();
@@ -79,7 +86,7 @@ pub fn render<S: Into<String>>(root: Element, name: S) {
 	render_data_type(&mut ctx, Type::Object(root.data_types));
 	
 	writeln!(ctx.file, ",\n\
-				\t\tnull,\n\
+				\t\tinit,\n\
 				\t\tupdate,\n\
 			\t);\n\
 			\tupdate(d);\n\
@@ -106,6 +113,7 @@ struct HtmlStyle {
 	height: Value,
 	font_weight: Value,
 	font_style: Value,
+	flex_direction: Value,
 }
 
 #[derive(Debug)]
@@ -223,6 +231,14 @@ impl HtmlElement {
 				ctx,
 				format!("{ind}e.style.flex = "),
 				&self.style.flex,
+				";\n",
+				Coerce::AsCss);
+		}
+		if self.style.flex_direction.is_set() {
+			render_value_js_coerce(
+				ctx,
+				format!("{ind}e.style.flexDirection = "),
+				&self.style.flex_direction,
 				";\n",
 				Coerce::AsCss);
 		}
@@ -356,14 +372,20 @@ impl RenderJs for Value {
 					Value::String(_) => {
 						self.render_js(ctx);
 					},
-					Value::Binding(_) => {
-						render_value_js(ctx, "String(", self, " ?? \"\")");
+					Value::Binding(Expr::Path(path)) => {
+						write!(ctx.file, "d.__props[\"{}\"].css()", path.join("\"].__props[\"")).unwrap();
 					},
 					Value::Color(r, g, b) => {
 						write!(ctx.file, "\"rgb({r},{g},{b})\"").unwrap();
 					},
 					Value::Px(px) => {
 						write!(ctx.file, "\"{px}px\"").unwrap();
+					},
+					Value::Direction(d) => {
+						match d {
+							Direction::Horizontal => write!(ctx.file, "\"row\"").unwrap(),
+							Direction::Vertical => write!(ctx.file, "\"column\"").unwrap(),
+						}
 					},
 					Value::Null => {
 						write!(ctx.file, "\"\"").unwrap();
@@ -445,11 +467,22 @@ impl WebRenderer {
 	}
 
 	fn render_children(&mut self, children: &Vec<Element>) {
-		self.indent += 1;
 		for element in children.iter() {
 			element.render_web(self);
 		}
-		self.indent -= 1;
+	}
+	fn render_component_child(&mut self, e: &ElementData) {
+		assert!(e.children.len() == 1);
+		assert!(e.children[0].repeater.is_none());
+		assert!(e.children[0].condition.is_none());
+
+		let child = &e.children[0];
+		let data = ElementData {
+			condition: e.condition,
+			repeater: e.repeater,
+			..child.data()
+		};
+		RenderWeb::render(child.element_impl.as_ref(), data, self);
 	}
 }
 
@@ -519,7 +552,7 @@ impl RenderWeb for Text {
 
 impl RenderWeb for Component {
 	fn render(&self, e: ElementData, ctx: &mut WebRenderer) -> Option<HtmlElement> {
-		ctx.render_children(e.children);
+		ctx.render_component_child(&e);
 		None
 	}
 }
@@ -537,6 +570,7 @@ impl RenderWeb for Layout {
 		div.style.top = self.y.clone();
 		div.style.width = self.width.clone();
 		div.style.height = self.height.clone();
+		div.style.flex_direction = self.direction.clone();
 		
 		ctx.display.push("flex");
 		ctx.begin_element(div);

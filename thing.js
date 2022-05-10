@@ -64,6 +64,72 @@ class _Length {
 	}
 }
 
+const clamp = (num, min, max) => Math.min(Math.max(num ?? 0, min), max);
+const hexDoubleDigit = (d) => { let n = parseInt(d, 16); return n << 4 | n }
+
+class _Brush {
+	static __default() {
+		return new _Brush();
+	}
+	constructor(arg) {
+		let transparent = { brushType: 'color', value: { r: 0, g: 0, b: 0, a: 0 } };
+
+		arg = arg ?? transparent;
+		if(arg.constructor == String) {
+			if(arg.match(/^#[\da-fA-F]{3}$/)) {
+				let r = hexDoubleDigit(arg[1]);
+				let g = hexDoubleDigit(arg[2]);
+				let b = hexDoubleDigit(arg[3]);
+				arg = { brushType: 'color', value: { r, g, b, a: 1 } };
+			} else if(arg.match(/^#[\da-fA-F]{4}$/)) {
+				let r = hexDoubleDigit(arg[1]);
+				let g = hexDoubleDigit(arg[2]);
+				let b = hexDoubleDigit(arg[3]);
+				let a = hexDoubleDigit(arg[4]) / 255;
+				arg = { brushType: 'color', value: { r, g, b, a } };
+			} else if(arg.match(/^#[\da-fA-F]{6}$/)) {
+				let r = parseInt(arg.slice(1,3), 16);
+				let g = parseInt(arg.slice(3,5), 16);
+				let b = parseInt(arg.slice(5,7), 16);
+				arg = { brushType: 'color', value: { r, g, b, a: 1 } };
+			} else if(arg.match(/^#[\da-fA-F]{8}$/)) {
+				let r = parseInt(arg.slice(1,3), 16);
+				let g = parseInt(arg.slice(3,5), 16);
+				let b = parseInt(arg.slice(5,7), 16);
+				let a = parseInt(arg.slice(7,9), 16) / 255;
+				arg = { brushType: 'color', value: { r, g, b, a } };
+			} else {//if(arg.match(/^rgb\(\d\)$/)) {
+				arg = transparent;
+			}
+		} else if(arg.brushType == null) {
+			arg = { brushType: 'color', value: arg };
+		}
+
+		if(arg.brushType == 'color') {
+			arg.value = {
+				r: clamp(arg.value?.r, 0, 255)|0,
+				g: clamp(arg.value?.g, 0, 255)|0,
+				b: clamp(arg.value?.b, 0, 255)|0,
+				a: clamp(arg.value?.a, 0, 1),
+			};
+		} else {
+			arg = transparent;
+		}
+
+		Object.defineProperty(this, 'brushType', { value: arg.brushType, enumerable: true });
+		Object.defineProperty(this, 'value', { value: arg.value, enumerable: true });
+	}
+	css() {
+		return this.jsValue();
+	}
+	jsValue() {
+		return `rgba(${this.value.r},${this.value.g},${this.value.b},${this.value.a})`;
+	}
+	flatJsValue() {
+		return this.jsValue();
+	}
+}
+
 class _Direction {
 	static __default() {
 		return new _Direction(false);
@@ -201,6 +267,32 @@ class _Object {
 	}
 	__default(onCommit) {
 		return new _ObjectInstance(this, null, onCommit);
+	}
+	flatJsValue() {
+		let types = {};
+		for(let key in this.props) {
+			types[key] = typeToFlatJsValue(this.props[key]);
+		}
+		return types;
+	}
+}
+
+function typeToFlatJsValue(t) {
+	if(t.constructor == _Iter) {
+		return [typeToFlatJsValue(t.itemType)];
+	} else if(t.constructor == _Object) {
+		return t.flatJsValue();
+	}
+	switch(t) {
+		case _Int:              return 'Int';
+		case _Float:            return 'Float';
+		case _Boolean:          return 'Boolean';
+		case _String:           return 'String';
+		case _Length:           return 'Length';
+		case _Brush:            return 'Brush';
+		case _Direction:        return 'Direction';
+		// case _Array:            types[key] = 'e'; break;
+		default:                throw new Error('unimplemented');
 	}
 }
 
@@ -367,6 +459,7 @@ w.Thing = w.Thing || {
 		_Boolean,
 		_String,
 		_Length,
+		_Brush,
 		_Iter,
 		_Iterator,
 		_Direction,

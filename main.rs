@@ -28,7 +28,7 @@ impl <'a> LookupScope<'a> {
 					imports: Some(&component.imports_map),
 					instance: Some((self, parse_tree)),
 				};
-				return Ok(Component::construct(&scope, &component.parse_tree));
+				return Component::construct(&scope, &component.parse_tree);
 			}
 		}
 

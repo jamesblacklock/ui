@@ -27,9 +27,8 @@ pub type Constructor = fn(&LookupScope, &ParserElement) -> (Box<dyn ElementImpl>
 
 pub trait ElementImpl: Debug + RenderWeb {
 	fn set_properties(&mut self, _properties: &HashMap<String, Value>) {}
-	fn property_types(&self) -> HashMap<String, Type> {
-		HashMap::new()
-	}
+	fn property_types(&self) -> HashMap<String, Type> { HashMap::new() }
+	fn base_data_types(&self) -> HashMap<String, Type> { HashMap::new() }
 }
 
 #[derive(Debug)]
@@ -106,7 +105,7 @@ impl Element {
 		let condition = parse_tree.condition.clone();
 
 		let property_types = element_impl.property_types();
-		let mut data_types = HashMap::new();
+		let mut data_types = element_impl.base_data_types();
 		for (k, v) in &parse_tree.properties {
 			match v {
 				Value::Binding(Expr::Path(path)) => {
@@ -218,8 +217,7 @@ fn build_elements(scope: &LookupScope, parse_tree: &[ParserContent]) -> Vec<Elem
 			ParserContent::Children(c) => {
 				if let Some((scope, instance)) = scope.instance {
 					let children_elements = build_elements(scope, &instance.children);
-						// .into_iter()
-						// .for_each(|e| elements.push(e));
+					// println!("{:#?}", children_elements);
 					let mut count = 0;
 					let limit = if c.single { 1 } else { i32::MAX };
 					for e in children_elements {
@@ -236,10 +234,10 @@ fn build_elements(scope: &LookupScope, parse_tree: &[ParserContent]) -> Vec<Elem
 	elements
 }
 
-fn build_element(scope: &LookupScope, parse_tree: &ParserElement) -> Option<Element> {
+fn build_element(scope: &LookupScope, parse_tree: &ParserElement) -> Element {
 	match Element::construct_element(scope.clone(), parse_tree) {
-		Ok(element) => Some(element),
-		Err(message) => { eprintln!("Error: {}", message); None }
+		Ok(element) => element,
+		Err(message) => { eprintln!("Error: {}", message); Element::default() }
 	}
 }
 
@@ -377,18 +375,29 @@ impl ElementImpl for Text {
 }
 
 #[derive(Debug)]
-pub struct Component {}
+pub struct Component {
+	pub element: Element,
+}
 
 impl Component {
-	pub fn construct(scope: &LookupScope, parse_tree: &ParserElement) -> (Box<dyn ElementImpl>, Vec<Element>) {
-		let mut children = build_element(scope, parse_tree).map(|e| vec![e]).unwrap_or(Vec::new());
-		let element = &mut children[0];
+	pub fn construct(scope: &LookupScope, parse_tree: &ParserElement) -> Result<(Box<dyn ElementImpl>, Vec<Element>), String> {
+		let mut element = build_element(scope, parse_tree);
 		element.set_properties(scope.instance.unwrap().1);
-		(Box::new(Component {}), children)
+		Ok((Box::new(Component { element }), Vec::new()))
 	}
 }
 
-impl ElementImpl for Component {}
+impl ElementImpl for Component {
+	fn set_properties(&mut self, properties: &HashMap<String, Value>) {
+		self.element.element_impl.set_properties(properties)
+	}
+	fn property_types(&self) -> HashMap<String, Type> {
+		self.element.element_impl.property_types()
+	}
+	fn base_data_types(&self) -> HashMap<String, Type> {
+		self.element.data_types.clone()
+	}
+}
 
 #[derive(Debug)]
 pub struct Layout {

@@ -11,7 +11,7 @@ layout {
 
     red_rect {
         span {"hello!"}
-        xyz { color: #fff; }
+        xyz { color: (abc_color); }
     }
 
     span for i in (iterable) {

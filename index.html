@@ -3,8 +3,9 @@
 <div id="hello"></div>
 <script>
 	const { hello } = Thing;
-	let element = document.getElementById("hello");
-	window.data = hello(element, {
+	
+	let e = document.getElementById("hello");
+	let d = {
 		width: 500,
 		pos: {
 			x: '5in',
@@ -13,5 +14,7 @@
 		show_second_rect: true,
 		iterable: ['a', 'b', 'c', 'd'],
 		direction: 'vertical',
-	});
+	};
+
+	window.data = hello(e, d);
 </script>

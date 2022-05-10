@@ -43,6 +43,9 @@ fn render_data_type(ctx: &mut WebRenderer, data_type: Type) {
 		Type::Length => {
 			write!(ctx.file, "w.Thing.__types._Length").unwrap();
 		},
+		Type::Brush => {
+			write!(ctx.file, "w.Thing.__types._Brush").unwrap();
+		},
 		Type::Direction => {
 			write!(ctx.file, "w.Thing.__types._Direction").unwrap();
 		},
@@ -355,9 +358,6 @@ impl RenderJs for Value {
 			Value::Int(n) => {
 				write!(ctx.file, "{}", n).unwrap();
 			},
-			Value::Null => {
-				write!(ctx.file, "null").unwrap();
-			},
 			_ => unimplemented!("RenderJs unimplemented for {:?}", self),
 		}
 	}
@@ -386,9 +386,6 @@ impl RenderJs for Value {
 							Direction::Horizontal => write!(ctx.file, "\"row\"").unwrap(),
 							Direction::Vertical => write!(ctx.file, "\"column\"").unwrap(),
 						}
-					},
-					Value::Null => {
-						write!(ctx.file, "\"\"").unwrap();
 					},
 					_ => unimplemented!("RenderJs Coercion AsCss unimplemented for {:?}", self),
 				}
@@ -471,19 +468,6 @@ impl WebRenderer {
 			element.render_web(self);
 		}
 	}
-	fn render_component_child(&mut self, e: &ElementData) {
-		assert!(e.children.len() == 1);
-		assert!(e.children[0].repeater.is_none());
-		assert!(e.children[0].condition.is_none());
-
-		let child = &e.children[0];
-		let data = ElementData {
-			condition: e.condition,
-			repeater: e.repeater,
-			..child.data()
-		};
-		RenderWeb::render(child.element_impl.as_ref(), data, self);
-	}
 }
 
 pub trait RenderWeb {
@@ -552,7 +536,17 @@ impl RenderWeb for Text {
 
 impl RenderWeb for Component {
 	fn render(&self, e: ElementData, ctx: &mut WebRenderer) -> Option<HtmlElement> {
-		ctx.render_component_child(&e);
+		assert!(e.children.len() == 0);
+		assert!(self.element.repeater.is_none());
+		assert!(self.element.condition.is_none());
+
+		let data = ElementData {
+			condition: e.condition,
+			repeater: e.repeater,
+			..self.element.data()
+		};
+		RenderWeb::render(self.element.element_impl.as_ref(), data, ctx);
+
 		None
 	}
 }

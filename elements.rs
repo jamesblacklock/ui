@@ -9,21 +9,26 @@ use super::{
 	Module,
 	LookupScope,
 	Value,
+	Expr,
+	Type,
 };
 
 pub type Constructor = fn(&LookupScope, &ParserElement) -> (Box<dyn ElementImpl>, Vec<Element>);
 
-#[derive(Default, Debug)]
-pub struct StandardProps {
-	pub width: Value,
-	pub height: Value,
-	pub x: Value,
-	pub y: Value,
-	pub background: Value,
-}
+// #[derive(Default, Debug)]
+// pub struct StandardProps {
+// 	pub width: Value,
+// 	pub height: Value,
+// 	pub x: Value,
+// 	pub y: Value,
+// 	pub background: Value,
+// }
 
 pub trait ElementImpl: Debug + RenderWeb {
-	fn inherit_properties(&mut self, _parse_tree: &ParserElement) {}
+	fn set_properties(&mut self, _properties: &HashMap<String, Value>) {}
+	fn property_types(&self) -> HashMap<String, Type> {
+		HashMap::new()
+	}
 }
 
 #[derive(Debug)]
@@ -42,7 +47,8 @@ pub struct Element {
 	pub tag: String,
 	pub condition: Option<Value>,
 	pub repeater: Option<Repeater>,
-	pub standard_props: StandardProps,
+	// pub standard_props: StandardProps,
+	pub data_types: HashMap<String, Type>,
 	pub temporary_hacky_click_handler: Option<Value>,
 	pub children: Vec<Element>,
 	pub element_impl: Box<dyn ElementImpl>,
@@ -52,7 +58,7 @@ pub struct ElementData<'a> {
 	pub tag: &'a String,
 	pub condition: &'a Option<Value>,
 	pub repeater: &'a Option<Repeater>,
-	pub standard_props: &'a StandardProps,
+	// pub standard_props: &'a StandardProps,
 	pub temporary_hacky_click_handler: &'a Option<Value>,
 	pub children: &'a Vec<Element>,
 }
@@ -66,6 +72,22 @@ impl Default for Element {
 	}
 }
 
+
+
+fn update_data_type(map: &mut HashMap<String, Type>, path: &[String], t: &Type) {
+	if path.len() > 1 {
+		if let Some(Type::Object(next_map)) = map.get_mut(&path[0]) {
+			update_data_type(next_map, &path[1..], t);
+		} else {
+			let mut next_map = HashMap::new();
+			update_data_type(&mut next_map, &path[1..], t);
+			map.insert(path[0].clone(), Type::Object(next_map));
+		}
+		return;
+	}
+	map.insert(path[0].clone(), t.clone());
+}
+
 impl Element {
 	fn construct_component(scope: LookupScope, parse_tree: &ParserComponent) -> Result<Self, String> {
 		let scope = LookupScope { module: scope.module, imports: Some(&parse_tree.imports_map), instance: None };
@@ -73,53 +95,67 @@ impl Element {
 	}
 
 	fn construct_element(scope: LookupScope, parse_tree: &ParserElement) -> Result<Self, String> {
-		let standard_props = Self::init_props(&parse_tree.properties);
-		let (element_impl, children) = scope.construct(&parse_tree)?;
+		// let standard_props = Self::init_props(&parse_tree.properties);
+		let (mut element_impl, children) = scope.construct(&parse_tree)?;
+		element_impl.set_properties(&parse_tree.properties);
 		let repeater = parse_tree.repeater.as_ref().map(|e| Repeater {
 			index: e.index.as_ref().map(|e| e.into()),
 			item: e.item.clone(),
 			collection: e.collection.clone(),
 		});
+
+		let property_types = element_impl.property_types();
+		let mut data_types = HashMap::new();
+		for (k, v) in &parse_tree.properties {
+			match v {
+				Value::Binding(Expr::Path(path)) => {
+					if let Some(t) = property_types.get(k.as_str()) {
+						update_data_type(&mut data_types, path, t);
+					}
+				},
+				_ => {},
+			}
+		}
 		Ok(Element {
 			tag: parse_tree.path.join("."),
 			condition: parse_tree.condition.clone(),
 			repeater,
-			standard_props,
+			data_types,
 			temporary_hacky_click_handler: parse_tree.event_handlers.get("click").map(|e| e.clone()),
 			children,
 			element_impl,
 		})
 	}
 
-	fn inherit_properties(&mut self, parse_tree: &ParserElement) {
-		self.standard_props = Self::merge_props(
-			std::mem::replace(&mut self.standard_props, Default::default()),
-			&parse_tree.properties);
-		self.element_impl.inherit_properties(parse_tree);
+	fn set_properties(&mut self, parse_tree: &ParserElement) {
+		// self.standard_props = Self::merge_props(
+		// 	std::mem::replace(&mut self.standard_props, Default::default()),
+		// 	&parse_tree.properties);
+		self.element_impl.set_properties(&parse_tree.properties);
 	}
 
-	pub fn merge_props(mut props: StandardProps, new_props: &HashMap<String, Value>) -> StandardProps {
-		if let Some(value) = new_props.get("width") {
-			props.width = value.clone();
-		}
-		if let Some(value) = new_props.get("height") {
-			props.height = value.clone();
-		}
-		if let Some(value) = new_props.get("x") {
-			props.x = value.clone();
-		}
-		if let Some(value) = new_props.get("y") {
-			props.y = value.clone();
-		}
-		if let Some(value) = new_props.get("background") {
-			props.background = value.clone();
-		}
-		props
-	}
+	// pub fn merge_props(mut props: StandardProps, new_props: &HashMap<String, Value>) -> StandardProps {
+	// 	if let Some(value) = new_props.get("width") {
+	// 		props.width = value.clone();
+	// 	}
+	// 	if let Some(value) = new_props.get("height") {
+	// 		props.height = value.clone();
+	// 	}
+	// 	if let Some(value) = new_props.get("x") {
+	// 		props.x = value.clone();
+	// 	}
+	// 	if let Some(value) = new_props.get("y") {
+	// 		props.y = value.clone();
+	// 	}
+	// 	if let Some(value) = new_props.get("background") {
+	// 		props.background = value.clone();
+	// 	}
+	// 	props
+	// }
 
-	pub fn init_props(props: &HashMap<String, Value>) -> StandardProps {
-		Self::merge_props(StandardProps::default(), props)
-	}
+	// pub fn init_props(props: &HashMap<String, Value>) -> StandardProps {
+	// 	Self::merge_props(StandardProps::default(), props)
+	// }
 
 	pub fn render_web(&self, ctx: &mut WebRenderer) -> Option<HtmlElement> {
 		RenderWeb::render(self.element_impl.as_ref(), self.data(), ctx)
@@ -130,7 +166,7 @@ impl Element {
 			tag: &self.tag,
 			condition: &self.condition,
 			repeater: &self.repeater,
-			standard_props: &self.standard_props,
+			// standard_props: &self.standard_props,
 			temporary_hacky_click_handler: &self.temporary_hacky_click_handler,
 			children: &self.children,
 		}
@@ -211,13 +247,54 @@ pub fn build_component(module: &Module, parse_tree: &ParserComponent) -> Element
 // }
 
 #[derive(Debug)]
-pub struct Rect {}
+pub struct Rect {
+	pub width: Value,
+	pub height: Value,
+	pub x: Value,
+	pub y: Value,
+	pub background: Value,
+}
 
-impl ElementImpl for Rect {}
+impl ElementImpl for Rect {
+	fn property_types(&self) -> HashMap<String, Type> {
+		hashmap![
+			"width".into() => Type::Length,
+			"height".into() => Type::Length,
+			"x".into() => Type::Length,
+			"y".into() => Type::Length,
+			"background".into() => Type::Brush,
+		]
+	}
+
+	fn set_properties(&mut self, properties: &HashMap<String, Value>) {
+		if let Some(width) = properties.get("width") {
+			self.width = width.clone();
+		}
+		if let Some(height) = properties.get("height") {
+			self.height = height.clone();
+		}
+		if let Some(x) = properties.get("x") {
+			self.x = x.clone();
+		}
+		if let Some(y) = properties.get("y") {
+			self.y = y.clone();
+		}
+		if let Some(background) = properties.get("background") {
+			self.background = background.clone();
+		}
+	}
+}
 
 impl Rect {
 	pub fn construct(scope: &LookupScope, parse_tree: &ParserElement) -> (Box<dyn ElementImpl>, Vec<Element>) {
-		(Box::new(Rect {}), build_elements(scope, &parse_tree.children))
+		let data = Rect {
+			width: Value::Px(0),
+			height: Value::Px(0),
+			x: Value::Px(0),
+			y: Value::Px(0),
+			background: Value::Color(0,0,0),
+		};
+		(Box::new(data), build_elements(scope, &parse_tree.children))
 	}
 }
 
@@ -228,18 +305,17 @@ pub struct Span {
 
 impl Span {
 	pub fn construct(scope: &LookupScope, parse_tree: &ParserElement) -> (Box<dyn ElementImpl>, Vec<Element>) {
-		let color = if let Some(color) = parse_tree.properties.get("color") {
-			color.clone()
-		} else {
-			Value::Color(0,0,0)
-		};
-		(Box::new(Span { color }), build_elements(scope, &parse_tree.children))
+		(Box::new(Span { color: Value::Color(0,0,0) }), build_elements(scope, &parse_tree.children))
 	}
 }
 
 impl ElementImpl for Span {
-	fn inherit_properties(&mut self, parse_tree: &ParserElement) {
-		if let Some(color) = parse_tree.properties.get("color") {
+	fn property_types(&self) -> HashMap<String, Type> {
+		hashmap!["color".into() => Type::Brush]
+	}
+
+	fn set_properties(&mut self, properties: &HashMap<String, Value>) {
+		if let Some(color) = properties.get("color") {
 			self.color = color.clone()
 		}
 	}
@@ -252,15 +328,21 @@ pub struct Text {
 
 impl Text {
 	pub fn construct(scope: &LookupScope, parse_tree: &ParserElement) -> (Box<dyn ElementImpl>, Vec<Element>) {
-		let content = parse_tree.properties
-			.get("content")
-			.map(|e| e.clone())
-			.unwrap_or(Value::String("".to_owned()));
-		(Box::new(Text { content }), build_elements(scope, &parse_tree.children))
+		(Box::new(Text { content: Value::String("".to_owned()) }), build_elements(scope, &parse_tree.children))
 	}
 }
 
-impl ElementImpl for Text {}
+impl ElementImpl for Text {
+	fn property_types(&self) -> HashMap<String, Type> {
+		hashmap!["content".into() => Type::String]
+	}
+
+	fn set_properties(&mut self, properties: &HashMap<String, Value>) {
+		if let Some(content) = properties.get("content") {
+			self.content = content.clone()
+		}
+	}
+}
 
 #[derive(Debug)]
 pub struct Component {}
@@ -269,7 +351,7 @@ impl Component {
 	pub fn construct(scope: &LookupScope, parse_tree: &ParserElement) -> (Box<dyn ElementImpl>, Vec<Element>) {
 		let mut children = build_element(scope, parse_tree).map(|e| vec![e]).unwrap_or(Vec::new());
 		let element = &mut children[0];
-		element.inherit_properties(scope.instance.unwrap().1);
+		element.set_properties(scope.instance.unwrap().1);
 		(Box::new(Component {}), children)
 	}
 }
@@ -278,16 +360,33 @@ impl ElementImpl for Component {}
 
 #[derive(Debug)]
 pub struct Layout {
-	
+	pub x: Value,
+	pub y: Value,
 }
 
 impl Layout {
 	pub fn construct(scope: &LookupScope, parse_tree: &ParserElement) -> (Box<dyn ElementImpl>, Vec<Element>) {
-		(Box::new(Layout {}), build_elements(scope, &parse_tree.children))
+		(Box::new(Layout { x: Value::Px(0), y: Value::Px(0) }), build_elements(scope, &parse_tree.children))
 	}
 }
 
-impl ElementImpl for Layout {}
+impl ElementImpl for Layout {
+	fn property_types(&self) -> HashMap<String, Type> {
+		hashmap![
+			"x".into() => Type::Length,
+			"y".into() => Type::Length,
+		]
+	}
+
+	fn set_properties(&mut self, properties: &HashMap<String, Value>) {
+		if let Some(x) = properties.get("x") {
+			self.x = x.clone();
+		}
+		if let Some(y) = properties.get("y") {
+			self.y = y.clone();
+		}
+	}
+}
 
 
 // #[derive(Debug)]

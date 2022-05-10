@@ -13,8 +13,9 @@ layout {
     }
 
     span for i in 5 {
-        color: (self.parent.span_color);
-        (i)
+        //color: (self.parent.span_color);
+        //(i)
+        "x"
     }
 }
 

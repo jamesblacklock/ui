@@ -250,22 +250,26 @@ class _ObjectInstance {
 
 	commit() {
 		if(!this.__ready) {
-			return;
+			return false;
 		}
+		let changes = Object.entries(this.__changes);
+		let dirty = changes.length > 0;
 		this.__ready = false;
-		for(let [key, value] of Object.entries(this.__changes)) {
+		for(let [key, value] of changes) {
 			this.__props[key] = value;
 		}
-		this.__changes = {};
 		for(let key in this.__props) {
-			if(this.__props[key].__isData) {
-				this.__props[key].commit();
+			if(this.__changes[key] == null && this.__props[key].__isData) {
+				dirty = this.__props[key].commit() || dirty;
 			}
 		}
-		if(this.__onCommit) {
+		this.__changes = {};
+		if(dirty && this.__onCommit) {
 			this.__onCommit();
 		}
 		this.__ready = true;
+		console.log('dirty:', dirty);
+		return dirty;
 	}
 }
 

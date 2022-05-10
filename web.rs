@@ -6,6 +6,7 @@ use super::{
 	Value,
 	Element,
 	Expr,
+	Type,
 	elements::{
 		// Window,
 		Rect,
@@ -23,9 +24,32 @@ use super::{
 	}
 };
 
+fn render_data_type(ctx: &mut WebRenderer, data_type: Type) {
+	let ind = ctx.indent();
+	match data_type {
+		Type::Object(data_types) => {
+			writeln!(ctx.file, "new w.Thing.__types._Object({{");
+			ctx.indent += 1;
+			for (s, t) in data_types {
+				let ind = ctx.indent();
+				write!(ctx.file, "{ind}{s}: ");
+				render_data_type(ctx, t);
+			}
+			ctx.indent -= 1;
+			writeln!(ctx.file, "{ind}}}),");
+		},
+		Type::Length => {
+			writeln!(ctx.file, "w.Thing.__types._Length,");
+		},
+		_ => {
+			unimplemented!();
+		}
+	}
+}
+
 pub fn render<S: Into<String>>(root: Element, name: S) {
 	let mut ctx = WebRenderer::new(name);
-	let root = root.render_web(&mut ctx).unwrap();
+	let root_html = root.render_web(&mut ctx).unwrap();
 
 	writeln!(ctx.file, "(w => {{\n\
 		w.Thing.{} = p => {{\n\
@@ -34,20 +58,21 @@ pub fn render<S: Into<String>>(root: Element, name: S) {
 				\t\tThing.__begin(p);", ctx.name).unwrap();
 	
 	ctx.indent = 2;
-	root.render_js(&mut ctx);
+	root_html.render_js(&mut ctx);
 
-	writeln!(ctx.file, "\
+	write!(ctx.file, "\
 			\t}}\n\
-			\treturn new w.Thing.__types._ObjectInstance(\n\
-				\t\tnew w.Thing.__types._Object({{\n\
-					\t\t\t// pos: new w.Thing.__types._Object ({{\n\
-					\t\t\t// \tx: w.Thing.__types._Length,\n\
-					\t\t\t// \ty: w.Thing.__types._Length,\n\
-					\t\t\t//}})\n\
-				\t\t}}),\n\
+			\tlet d = new w.Thing.__types._ObjectInstance(\n\t\t").unwrap();
+
+	ctx.indent = 2;
+	render_data_type(&mut ctx, Type::Object(root.data_types));
+	
+	writeln!(ctx.file, "\
 				\t\tnull,\n\
 				\t\tupdate,\n\
 			\t);\n\
+			\tupdate(d);\n\
+			\treturn d;\n\
 		}};\n}})(window);").unwrap();
 }
 
@@ -85,15 +110,9 @@ pub struct HtmlElement {
 
 impl HtmlElement {
 	fn new(tag: &'static str, e: &ElementData) -> Self {
-		let mut style = HtmlStyle::default();
-		style.width = e.standard_props.width.clone();
-		style.height = e.standard_props.height.clone();
-		style.left = e.standard_props.x.clone();
-		style.top = e.standard_props.y.clone();
-		style.background = e.standard_props.background.clone();
 		HtmlElement {
 			tag,
-			style,
+			style: HtmlStyle::default(),
 			attrs: HashMap::new(),
 			content: Vec::new(),
 			repeater: e.repeater.clone(),
@@ -429,7 +448,7 @@ pub trait RenderWeb {
 
 // impl RenderWeb for Window {
 // 	fn render(&self, ctx: &mut WebRenderer) -> Option<HtmlElement> {
-// 		let mut body = HtmlElement::new("body");
+// 		let mut body = HtmlElement::nnew("body");
 // 		body.style.background = self.standard_props.background.clone();
 // 		body.style.width = Value::String(String::from("100%"));
 // 		body.style.height = Value::String(String::from("100%"));
@@ -441,7 +460,14 @@ pub trait RenderWeb {
 
 impl RenderWeb for Rect {
 	fn render(&self, e: ElementData, ctx: &mut WebRenderer) -> Option<HtmlElement> {
-		ctx.begin_element(HtmlElement::new("div", &e));
+		let mut div = HtmlElement::new("div", &e);
+		div.style.width = self.width.clone();
+		div.style.height = self.height.clone();
+		div.style.left = self.x.clone();
+		div.style.top = self.y.clone();
+		div.style.background = self.background.clone();
+
+		ctx.begin_element(div);
 		ctx.render_children(e.children);
 		ctx.end_element()
 	}
@@ -495,7 +521,10 @@ impl RenderWeb for Empty {
 
 impl RenderWeb for Layout {
 	fn render(&self, e: ElementData, ctx: &mut WebRenderer) -> Option<HtmlElement> {
-		let div = HtmlElement::new("div", &e);
+		let mut div = HtmlElement::new("div", &e);
+		div.style.left = self.x.clone();
+		div.style.top = self.y.clone();
+		
 		ctx.display.push("flex");
 		ctx.begin_element(div);
 		ctx.flex.push("1");
@@ -527,7 +556,7 @@ impl RenderWeb for Layout {
 // }
 // impl RenderWeb for Img {
 // 	fn render(&self, ctx: &mut WebRenderer) -> Option<HtmlElement> {
-// 		let mut img = HtmlElement::new("img");
+// 		let mut img = HtmlElement::nnew("img");
 // 		img.style.width = self.standard_props.width.clone();
 // 		img.style.height = self.standard_props.height.clone();
 // 		img.style.left = self.standard_props.x.clone();

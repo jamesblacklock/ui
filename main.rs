@@ -127,6 +127,14 @@ pub enum Expr {
 }
 
 #[derive(Debug, Clone)]
+pub enum Type {
+	Length,
+	Brush,
+	String,
+	Object(HashMap<String, Type>),
+}
+
+#[derive(Debug, Clone)]
 pub enum Value {
 	Px(i32),
 	Float(f32),

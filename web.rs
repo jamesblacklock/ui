@@ -27,12 +27,28 @@ pub fn render<S: Into<String>>(root: Element, name: S) {
 	let mut ctx = WebRenderer::new(name);
 	let root = root.render_web(&mut ctx).unwrap();
 
-	writeln!(ctx.file, "(w => {{\nw.Thing.{} = (p, d={{}}, i=0) => {{\n\tThing.__begin(p);", ctx.name).unwrap();
+	writeln!(ctx.file, "(w => {{\n\
+		w.Thing.{} = p => {{\n\
+			\tfunction update(d) {{\n\
+				\t\tlet i = 0;\n\
+				\t\tThing.__begin(p);", ctx.name).unwrap();
 	
-	ctx.indent = 1;
+	ctx.indent = 2;
 	root.render_js(&mut ctx);
 
-	writeln!(ctx.file, "}};\n}})(window);").unwrap();
+	writeln!(ctx.file, "\
+			\t}}\n\
+			\treturn new w.Thing.__types._ObjectInstance(\n\
+				\t\tnew w.Thing.__types._Object({{\n\
+					\t\t\t// pos: new w.Thing.__types._Object ({{\n\
+					\t\t\t// \tx: w.Thing.__types._Length,\n\
+					\t\t\t// \ty: w.Thing.__types._Length,\n\
+					\t\t\t//}})\n\
+				\t\t}}),\n\
+				\t\tnull,\n\
+				\t\tupdate,\n\
+			\t);\n\
+		}};\n}})(window);").unwrap();
 }
 
 #[derive(Debug)]

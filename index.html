@@ -1,11 +1,14 @@
 <script src="./thing.js"></script>
 <script src="./hello.js"></script>
 <div id="hello"></div>
-<div id="blah"></div>
 <script>
 	const { hello } = Thing;
 	let element = document.getElementById("hello");
-	let data = {
+	window.data = hello(element);
+
+
+
+	// let data = {
 		// n: 300,
 		// show_span: true,
 		// some_list: ["a", "b", "c", "d"],
@@ -21,7 +24,7 @@
 		// 	this.some_list.pop();
 		// 	window.thing = hello(element, data);
 		// }
-	};
-	hello(element, { pos: { x: "100px" } });
-	hello(document.getElementById("blah"), { pos: { x: "800px" } })
+	// };
+	// { pos: { x: "100px" } });
+	// hello(document.getElementById("blah"), { pos: { x: "800px" } })
 </script>

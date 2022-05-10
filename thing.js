@@ -1,5 +1,284 @@
 (w => {
+class _Int {
+	static __default() {
+		return new _Int(0);
+	}
+	constructor(value) {
+		value = value ?? 0;
+		if(value.constructor == String) {
+			this.value = parseInt(value);
+		} else if(value.constructor == Number) {
+			this.value = value|0;
+		} else {
+			this.value = 0;
+		}
+		if(Number.isNaN(this.value)) {
+			this.value = 0;
+		}
+	}
+	jsValue() {
+		return this.value;
+	}
+	flatJsValue() {
+		return this.jsValue();
+	}
+}
+
+class _Length {
+	static __default() {
+		return new _Length(0);
+	}
+	constructor(arg) {
+		let unit = arg?.unit ?? 'px';
+		let value = arg?.value ?? arg ?? 0;
+		
+		if(value.value != null) {
+			value = value;
+		}
+		if(value.constructor == String) {
+			if(value.match(/^(\d*\.\d+|\d+)in$/)) {
+				unit = 'in';
+			} else if(value.match(/^(\d*\.\d+|\d+)cm$/)) {
+				unit = 'cm';
+			}
+			value = parseFloat(value);
+		} else if(value.constructor == Number) {
+			value = value;
+		} else {
+			value = 0;
+		}
+		if(Number.isNaN(this.value)) {
+			value = 0;
+		}
+		Object.defineProperty(this, 'unit', { value: unit, enumerable: true });
+		Object.defineProperty(this, 'value', { value: value, enumerable: true });
+	}
+	jsValue() {
+		return `${this.value}${this.unit}`;
+	}
+	flatJsValue() {
+		return `${this.value}${this.unit}`;
+	}
+}
+
+class _Float {
+	static __default() {
+		return new _Float(0);
+	}
+	constructor(value) {
+		value = value ?? 0;
+		if(value.constructor == String) {
+			this.value = parseFloat(value);
+		} else if(value.constructor == Number) {
+			this.value = value;
+		} else {
+			this.value = 0;
+		}
+		if(Number.isNaN(this.value)) {
+			this.value = 0;
+		}
+	}
+	jsValue() {
+		return this.value;
+	}
+	flatJsValue() {
+		return this.jsValue();
+	}
+}
+
+class _Boolean {
+	static __default() {
+		return new _Boolean(false);
+	}
+	constructor(value) {
+		this.value = !!value;
+	}
+	jsValue() {
+		return this.value;
+	}
+	flatJsValue() {
+		return this.jsValue();
+	}
+}
+
+class _String {
+	static __default() {
+		return new _String("");
+	}
+	constructor(value) {
+		this.value = String(value);
+	}
+	jsValue() {
+		return this.value;
+	}
+	flatJsValue() {
+		return this.jsValue();
+	}
+}
+
+class _Object {
+	constructor(props) {
+		this.props = props;
+	}
+	__default(onCommit) {
+		return new _ObjectInstance(this, null, onCommit);
+	}
+}
+
+function deriveType(t) {
+	if(t == null) {
+		return _Int;
+	} else if(t == String || t.constructor == String) {
+		return _String;
+	} else if(t == Boolean || t.constructor == Boolean) {
+		return _Boolean;
+	} else if(t == Number || t.constructor == Number) {
+		return _Float;
+	} else {
+		let types = {};
+		for(key in t) {
+			types[key] = deriveType(t[key]);
+		}
+		return new _Object(types);
+	}
+}
+
+function coerce(v, t, onCommit) {
+	if(v == t) {
+		return t.__default();
+	} else if(t.constructor == _Object) {
+		return new _ObjectInstance(t, v, onCommit);
+	} else {
+		return new t(v);
+	}
+}
+
+function equals(l, r) {
+	if(l == null || r == null) {
+		return l == r;
+	}
+	if(isPrimitive(l) || isPrimitive(r)) {
+		return l === r;
+	}
+	if(l.__isData) {
+		l = l.flatJsValue();
+	}
+	if(r.__isData) {
+		r = r.flatJsValue();
+	}
+	// if(l.constructor == Array || r.constructor == Array) {
+	// 	if(l.constructor != r.constructor || l.length != r.length) {
+	// 		return false;
+	// 	}
+	// 	for(let i=0; i<l.length; i++) {
+	// 		if(!equals(l[i], r[i])) {
+	// 			return false;
+	// 		}
+	// 	}
+	// } else {
+		let keys = new Set([...Object.keys(l), ...Object.keys(r)]);
+		for(let key of keys) {
+			if(!equals(l[key], r[key])) {
+				return false;
+			}
+		}
+	// }
+	return true;
+}
+
+function isPrimitive(object) {
+	return object.constructor == Number || object.constructor == String || object.constructor == Boolean;
+}
+
+class _ObjectInstance {
+	constructor(type, values, onCommit) {
+		if(type.constructor != _Object) {
+			values = type;
+			type = deriveType(type);
+		}
+		Object.defineProperty(this, '__type', {enumerable: false, writable: true, value: type});
+		Object.defineProperty(this, '__changes', {enumerable: false, writable: true, value: {}});
+		Object.defineProperty(this, '__props', {enumerable: false, writable: true, value: {}});
+		Object.defineProperty(this, '__isData', {enumerable: false, writable: true, value: true});
+		Object.defineProperty(this, '__onCommit', {enumerable: false, writable: true, value: onCommit.bind(null, this)});
+		Object.defineProperty(this, '__ready', {enumerable: false, writable: true, value: false});
+		for(let key in type.props) {
+			Object.defineProperty(this, key, {
+				enumerable: true,
+				get() {
+					let result;
+					if(this.__changes[key] !== undefined) {
+						result = this.__changes[key].jsValue();
+					} else {
+						result = this.__props[key].jsValue();
+					}
+					return result;
+				},
+				set(value) {
+					value = coerce(value, this.__type.props[key], () => this.commit());
+					if(equals(value.jsValue(), this.__props[key].jsValue())) {
+						delete this.__changes[key];
+					} else {
+						this.__changes[key] = value;
+					}
+					// this.commit();
+				},
+			});
+			this.__props[key] = type.props[key].__default(() => this.commit());
+		}
+		Object.seal(this);
+		if(values != null) {
+			for(let key in values) {
+				this[key] = values[key];
+			}
+		}
+		this.__ready = true;
+		this.commit();
+	}
+
+	jsValue() {
+		return this;
+	}
+
+	flatJsValue() {
+		let object = {};
+		for(let key in this.__props) {
+			object[key] = (this.__changes[key] ?? this.__props[key]).flatJsValue();
+		}
+		return object;
+	}
+
+	commit() {
+		if(!this.__ready) {
+			return;
+		}
+		this.__ready = false;
+		for(let [key, value] of Object.entries(this.__changes)) {
+			this.__props[key] = value;
+		}
+		this.__changes = {};
+		for(let key in this.__props) {
+			if(this.__props[key].__isData) {
+				this.__props[key].commit();
+			}
+		}
+		if(this.__onCommit) {
+			this.__onCommit();
+		}
+		this.__ready = true;
+	}
+}
+
 w.Thing = w.Thing || {
+	__types: {
+		_Int,
+		_Float,
+		_Boolean,
+		_String,
+		_Length,
+		_Object,
+		_ObjectInstance,
+	},
 	__iter(n) {
 		if(n.constructor == Array) {
 			return n.entries();

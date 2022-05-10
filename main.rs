@@ -126,11 +126,12 @@ pub enum Expr {
 	Path(Vec<String>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
 	Length,
 	Brush,
 	String,
+	Iter(Box<Type>),
 	Object(HashMap<String, Type>),
 }
 

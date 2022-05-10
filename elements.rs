@@ -95,7 +95,6 @@ impl Element {
 	}
 
 	fn construct_element(scope: LookupScope, parse_tree: &ParserElement) -> Result<Self, String> {
-		// let standard_props = Self::init_props(&parse_tree.properties);
 		let (mut element_impl, children) = scope.construct(&parse_tree)?;
 		element_impl.set_properties(&parse_tree.properties);
 		let repeater = parse_tree.repeater.as_ref().map(|e| Repeater {
@@ -116,6 +115,31 @@ impl Element {
 				_ => {},
 			}
 		}
+
+		for child in &children {
+			for (k, child_t) in &child.data_types {
+				if let Some(this_t) = data_types.get(k) {
+					if this_t != child_t {
+						eprintln!("type error: {:?} does not match {:?}", this_t, child_t);
+					}
+				} else {
+					data_types.insert(k.clone(), child_t.clone());
+				}
+			}
+		}
+
+		if let Some(repeater) = repeater.as_ref() {
+			repeater.index.as_ref().map(|e| data_types.remove(e));
+			if let Some(item_type) = data_types.remove(&repeater.item) {
+				match &repeater.collection {
+					Value::Binding(Expr::Path(path)) => {
+						update_data_type(&mut data_types, path, &Type::Iter(Box::new(item_type)));
+					},
+					_ => {},
+				}
+			}
+		}
+
 		Ok(Element {
 			tag: parse_tree.path.join("."),
 			condition: parse_tree.condition.clone(),
@@ -128,9 +152,6 @@ impl Element {
 	}
 
 	fn set_properties(&mut self, parse_tree: &ParserElement) {
-		// self.standard_props = Self::merge_props(
-		// 	std::mem::replace(&mut self.standard_props, Default::default()),
-		// 	&parse_tree.properties);
 		self.element_impl.set_properties(&parse_tree.properties);
 	}
 
@@ -360,13 +381,21 @@ impl ElementImpl for Component {}
 
 #[derive(Debug)]
 pub struct Layout {
+	pub width: Value,
+	pub height: Value,
 	pub x: Value,
 	pub y: Value,
 }
 
 impl Layout {
 	pub fn construct(scope: &LookupScope, parse_tree: &ParserElement) -> (Box<dyn ElementImpl>, Vec<Element>) {
-		(Box::new(Layout { x: Value::Px(0), y: Value::Px(0) }), build_elements(scope, &parse_tree.children))
+		let data = Layout {
+			x: Value::Px(0),
+			y: Value::Px(0),
+			width: Value::Px(0),
+			height: Value::Px(0),
+		};
+		(Box::new(data), build_elements(scope, &parse_tree.children))
 	}
 }
 
@@ -375,6 +404,8 @@ impl ElementImpl for Layout {
 		hashmap![
 			"x".into() => Type::Length,
 			"y".into() => Type::Length,
+			"width".into() => Type::Length,
+			"height".into() => Type::Length,
 		]
 	}
 
@@ -384,6 +415,12 @@ impl ElementImpl for Layout {
 		}
 		if let Some(y) = properties.get("y") {
 			self.y = y.clone();
+		}
+		if let Some(width) = properties.get("width") {
+			self.width = width.clone();
+		}
+		if let Some(height) = properties.get("height") {
+			self.height = height.clone();
 		}
 	}
 }

@@ -2,7 +2,7 @@ import "./my_rect" as red_rect;
 import "./abc" as xyz;
 
 layout {
-    width: 600px;
+    width: (width);
     height: 200px;
     x: (pos.x); y: (pos.y);
     background: #ccc;
@@ -12,10 +12,9 @@ layout {
         xyz { color: #fff; }
     }
 
-    span for i in 5 {
+    span for i in (iterable) {
         //color: (self.parent.span_color);
-        //(i)
-        "x"
+        (i)
     }
 }
 

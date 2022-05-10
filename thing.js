@@ -116,6 +116,45 @@ class _String {
 	}
 }
 
+class _Iter {
+	constructor(itemType) {
+		this.itemType = itemType;
+	}
+	__default() {
+		return new _Iterator(this, []);
+	}
+}
+
+class _Iterator {
+	__isIter = true;
+	constructor(type, collection) {
+		collection = collection ?? [];
+		this.collection = collection
+		this.type = type;
+
+		if(collection.constructor == Array) {
+			this.iter = function*() {
+				for(let [i, j] of collection.entries()) {
+					yield [i, coerce(j, this.type.itemType).jsValue()];
+				}
+			};
+		} else if(collection.constructor == Number) {
+			this.iter = function*() {
+				for(let i = 0; i<collection; i++) {
+					yield [i, coerce(i, this.type.itemType).jsValue()];
+				}
+			};
+		} else {
+			this.iter = { next: () => ({ done: true, value: undefined }) }
+		}
+	}
+	jsValue() {
+		return this;
+	}
+	flatJsValue() {
+		return this.collection;
+	}
+}
 class _Object {
 	constructor(props) {
 		this.props = props;
@@ -148,6 +187,8 @@ function coerce(v, t, onCommit) {
 		return t.__default();
 	} else if(t.constructor == _Object) {
 		return new _ObjectInstance(t, v, onCommit);
+	} else if(t.constructor == _Iter) {
+		return new _Iterator(t, v);
 	} else {
 		return new t(v);
 	}
@@ -156,6 +197,12 @@ function coerce(v, t, onCommit) {
 function equals(l, r) {
 	if(l == null || r == null) {
 		return l == r;
+	}
+	if(l.__isIter) {
+		l = l.collection;
+	}
+	if(r.__isIter) {
+		r = r.collection;
 	}
 	if(isPrimitive(l) || isPrimitive(r)) {
 		return l === r;
@@ -280,32 +327,10 @@ w.Thing = w.Thing || {
 		_Boolean,
 		_String,
 		_Length,
+		_Iter,
+		_Iterator,
 		_Object,
 		_ObjectInstance,
-	},
-	__iter(n) {
-		if(n.constructor == Array) {
-			return n.entries();
-		} else if(n.constructor == Number) {
-			let i = 0;
-			return {
-				[Symbol.iterator]() {
-					return {
-						next() {
-							if(i < n) {
-								let res = { done: false, value: [i, i] };
-								i++;
-								return res;
-							} else {
-								return { done: true, value: undefined };
-							}
-						}
-					};
-				}
-			};
-		} else {
-			return { next: () => ({ done: true, value: undefined }) }
-		}
 	},
 	__begin(p) {
 		p.__l = null;
@@ -370,7 +395,7 @@ w.Thing = w.Thing || {
 	},
 	__endGroup(p) {
 		let l = p.__e[p.__g];
-		for(let i = p.__i; i<l.length; i++) {
+		for(let i = p.__i+1; i<l.length; i++) {
 			l[i].remove();
 			l[i].__in = false;
 		}

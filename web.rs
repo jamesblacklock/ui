@@ -28,21 +28,32 @@ fn render_data_type(ctx: &mut WebRenderer, data_type: Type) {
 	let ind = ctx.indent();
 	match data_type {
 		Type::Object(data_types) => {
-			writeln!(ctx.file, "new w.Thing.__types._Object({{");
+			writeln!(ctx.file, "new w.Thing.__types._Object({{").unwrap();
 			ctx.indent += 1;
 			for (s, t) in data_types {
 				let ind = ctx.indent();
-				write!(ctx.file, "{ind}{s}: ");
+				write!(ctx.file, "{ind}{s}: ").unwrap();
 				render_data_type(ctx, t);
+				writeln!(ctx.file, ",").unwrap();
 			}
 			ctx.indent -= 1;
-			writeln!(ctx.file, "{ind}}}),");
+			write!(ctx.file, "{ind}}})").unwrap();
 		},
 		Type::Length => {
-			writeln!(ctx.file, "w.Thing.__types._Length,");
+			write!(ctx.file, "w.Thing.__types._Length").unwrap();
+		},
+		Type::String => {
+			write!(ctx.file, "w.Thing.__types._String").unwrap();
+		},
+		Type::Iter(t) => {
+			write!(ctx.file, "new w.Thing.__types._Iter(").unwrap();
+			ctx.indent += 1;
+			render_data_type(ctx, *t);
+			ctx.indent -= 1;
+			write!(ctx.file, ")").unwrap();
 		},
 		_ => {
-			unimplemented!();
+			unimplemented!("rendering data type: {:?}", data_type);
 		}
 	}
 }
@@ -67,7 +78,7 @@ pub fn render<S: Into<String>>(root: Element, name: S) {
 	ctx.indent = 2;
 	render_data_type(&mut ctx, Type::Object(root.data_types));
 	
-	writeln!(ctx.file, "\
+	writeln!(ctx.file, ",\n\
 				\t\tnull,\n\
 				\t\tupdate,\n\
 			\t);\n\
@@ -135,9 +146,9 @@ impl HtmlElement {
 
 		if let Some(Repeater { collection, .. }) = self.repeater.as_ref() {
 			render_value_js(ctx,
-				format!("{ind}Thing.__beginGroup(p, i);\n{ind}for(let [i, item] of Thing.__iter("),
+				format!("{ind}Thing.__beginGroup(p, i);\n{ind}for(let [i, item] of "),
 				collection,
-				format!(")) {{\n{ind}\t(d => {{\n"));
+				format!(".iter()) {{\n{ind}\t(d => {{\n"));
 			ctx.indent += 2;
 			ind = ctx.indent();
 		}
@@ -524,6 +535,8 @@ impl RenderWeb for Layout {
 		let mut div = HtmlElement::new("div", &e);
 		div.style.left = self.x.clone();
 		div.style.top = self.y.clone();
+		div.style.width = self.width.clone();
+		div.style.height = self.height.clone();
 		
 		ctx.display.push("flex");
 		ctx.begin_element(div);

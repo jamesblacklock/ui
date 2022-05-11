@@ -215,22 +215,14 @@ class _Iter {
 function _Array(type, arr, onCommit) {
 	let it = new _Iterator(type, arr.map(e => coerce(e, type.itemType, onCommit)));
 	Object.defineProperty(it, '__changes', {writable: true, value: {}});
+	Object.defineProperty(it, '__dirty', {writable: true, value: false});
 	Object.defineProperty(it, '__onCommit', {value: onCommit});
 	Object.defineProperty(it, '__isData', {value: true});
 	Object.defineProperty(it, 'commit', {value: commit.bind(it)});
+	Object.defineProperty(it, 'flatJsValue', {value: flatJsValue.bind(it)});
 
 	function commit() {
-		let changes = Object.entries(this.__changes);
-		let dirty = changes.length > 0;
-		for(let [key, value] of changes) {
-			this.__collection[key] = value;
-		}
-		for(let key in this.__collection) {
-			if(this.__changes[key] == null && this.__collection[key].__isData) {
-				dirty = this.__collection[key].commit() || dirty;
-			}
-		}
-		this.__changes = {};
+		let dirty = applyChanges(this);
 		if(dirty && this.__onCommit) {
 			this.__onCommit();
 		}
@@ -238,14 +230,95 @@ function _Array(type, arr, onCommit) {
 		return dirty;
 	}
 
+	function flatJsValue() {
+		return this.__collection.map(e => e.flatJsValue());
+	}
+
+	function mapValues(method) {
+		return function(...args) {
+			return method.apply(this.__collection.map(e => e.jsValue()), args);
+		};
+	}
+
+	function applyChanges(target) {
+		let changes = Object.entries(target.__changes);
+		let dirty = target.__dirty || changes.length > 0;
+		for(let [key, value] of changes) {
+			target.__collection[key] = value;
+		}
+		for(let key in target.__collection) {
+			if(target.__changes[key] == null && target.__collection[key].__isData) {
+				dirty = target.__collection[key].commit() || dirty;
+			}
+		}
+		target.__changes = {};
+		target.__dirty = false;
+		// console.log('dirty:', dirty);
+		return dirty;
+	}
+
+	function setDirty(target) {
+		applyChanges(target);
+		target.__dirty = true;
+	}
+
+	function push(...args) {
+		setDirty(this);
+		return Array.prototype.push.apply(this.__collection, args.map(e => coerce(e, type.itemType, onCommit)));
+	}
+
+	let methods = {
+		at: mapValues(Array.prototype.at),
+		concat: mapValues(Array.prototype.concat),
+		entries: mapValues(Array.prototype.entries),
+		every: mapValues(Array.prototype.every),
+		filter: mapValues(Array.prototype.filter),
+		find: mapValues(Array.prototype.find),
+		findIndex: mapValues(Array.prototype.findIndex),
+		findLast: mapValues(Array.prototype.findLast),
+		findLastIndex: mapValues(Array.prototype.findLastIndex),
+		flatMap: mapValues(Array.prototype.flatMap),
+		forEach: mapValues(Array.prototype.forEach),
+		includes: mapValues(Array.prototype.includes),
+		indexOf: mapValues(Array.prototype.indexOf),
+		join: mapValues(Array.prototype.join),
+		keys: mapValues(Array.prototype.keys),
+		lastIndexOf: mapValues(Array.prototype.lastIndexOf),
+		map: mapValues(Array.prototype.map),
+		reduce: mapValues(Array.prototype.reduce),
+		reduceRight: mapValues(Array.prototype.reduceRight),
+		slice: mapValues(Array.prototype.slice),
+		some: mapValues(Array.prototype.some),
+		toLocaleString: mapValues(Array.prototype.toLocaleString),
+		toString: mapValues(Array.prototype.toString),
+		values: mapValues(Array.prototype.values),
+
+		// mutators
+		push,
+		pop: () => {throw new Error("unimplemented")},
+		splice: () => {throw new Error("unimplemented")},
+		shift: () => {throw new Error("unimplemented")},
+		unshift: () => {throw new Error("unimplemented")},
+		reverse: () => {throw new Error("unimplemented")},
+		sort: () => {throw new Error("unimplemented")},
+		copyWithin: () => {throw new Error("unimplemented")},
+		fill: () => {throw new Error("unimplemented")},
+		flat: () => {throw new Error("unimplemented")},
+	};
+
 	return new Proxy(it, {
 		get(target, i) {
 			if(target[i] !== undefined) {
 				return target[i];
 			}
+			if(i === 'length') {
+				return target.__collection.length;
+			} else if(methods[i] !== undefined) {
+				return methods[i].bind(target);
+			}
 			i = Number(i);
 			if(Number.isNaN(i) || i<0 || i>=target.__collection.length) { return; }
-			return coerce(target.__collection[i|0], target.__type.itemType).jsValue();
+			return (target.__changes[i|0] ?? target.__collection[i|0]).jsValue();
 		},
 		set(target, i, value) {
 			i = Number(i);
@@ -254,10 +327,12 @@ function _Array(type, arr, onCommit) {
 			value = coerce(value, target.__type.itemType, target.__onCommit);
 			if(equals(value.jsValue(), target.__collection[i|0].jsValue())) {
 				delete target.__changes[i|0];
+			} else if(target.__dirty) {
+				target.__collection[i|0] = value;
 			} else {
 				target.__changes[i|0] = value;
 			}
-			target.commit();
+			// target.commit(); // IMMEDIATE COMMIT
 		}
 	});
 }
@@ -438,7 +513,7 @@ class _ObjectInstance {
 					} else {
 						this.__changes[key] = value;
 					}
-					this.commit();
+					// this.commit(); // IMMEDIATE COMMIT
 				},
 			});
 			this.__props[key] = type.props[key].__default(onCommit);

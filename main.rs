@@ -152,7 +152,6 @@ pub enum Value {
 	Boolean(bool),
 	Binding(Expr),
 	Direction(Direction),
-	Null,
 	Unset,
 }
 

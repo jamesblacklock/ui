@@ -208,46 +208,78 @@ class _Iter {
 		this.itemType = itemType;
 	}
 	__default() {
-		return new _Iterator(this, []);
+		return new _Iterator(this, 0);
 	}
 }
 
-// function _Array(type, arr) {
-// 	let it = new _Iterator(type, arr);
-// 	return new Proxy(it, {
-// 		get(target, i) {
-// 			switch(i) {
-// 				case "__isIter":
-// 				case "collection":
-// 				case "type":
-// 				case "iter":
-// 				case "jsValue":
-// 				case "flatJsValue":
-// 					return target[i];
-// 				default:
-// 					return target.collection[i];
-// 			}
-// 		}
-// 	});
-// }
+function _Array(type, arr, onCommit) {
+	let it = new _Iterator(type, arr.map(e => coerce(e, type.itemType, onCommit)));
+	Object.defineProperty(it, '__changes', {writable: true, value: {}});
+	Object.defineProperty(it, '__onCommit', {value: onCommit});
+	Object.defineProperty(it, '__isData', {value: true});
+	Object.defineProperty(it, 'commit', {value: commit.bind(it)});
+
+	function commit() {
+		let changes = Object.entries(this.__changes);
+		let dirty = changes.length > 0;
+		for(let [key, value] of changes) {
+			this.__collection[key] = value;
+		}
+		for(let key in this.__collection) {
+			if(this.__changes[key] == null && this.__collection[key].__isData) {
+				dirty = this.__collection[key].commit() || dirty;
+			}
+		}
+		this.__changes = {};
+		if(dirty && this.__onCommit) {
+			this.__onCommit();
+		}
+		// console.log('dirty:', dirty);
+		return dirty;
+	}
+
+	return new Proxy(it, {
+		get(target, i) {
+			if(target[i] !== undefined) {
+				return target[i];
+			}
+			i = Number(i);
+			if(Number.isNaN(i) || i<0 || i>=target.__collection.length) { return; }
+			return coerce(target.__collection[i|0], target.__type.itemType).jsValue();
+		},
+		set(target, i, value) {
+			i = Number(i);
+			if(Number.isNaN(i) || i<0 || i>=target.__collection.length) { return; }
+
+			value = coerce(value, target.__type.itemType, target.__onCommit);
+			if(equals(value.jsValue(), target.__collection[i|0].jsValue())) {
+				delete target.__changes[i|0];
+			} else {
+				target.__changes[i|0] = value;
+			}
+			target.commit();
+		}
+	});
+}
 
 class _Iterator {
 	__isIter = true;
 	constructor(type, collection) {
 		collection = collection ?? [];
-		this.collection = collection
-		this.type = type;
+		
+		Object.defineProperty(this, '__collection', { enumerable: true, value: collection });
+		Object.defineProperty(this, '__type', { enumerable: true, value: type });
 
 		if(collection.constructor == Array) {
 			this.iter = function*() {
 				for(let [i, j] of collection.entries()) {
-					yield [i, coerce(j, this.type.itemType).jsValue()];
+					yield [i, j/*coerce(j, this.__type.itemType)*/.jsValue()];
 				}
 			};
 		} else if(collection.constructor == Number) {
 			this.iter = function*() {
 				for(let i = 0; i<collection; i++) {
-					yield [i, coerce(i, this.type.itemType).jsValue()];
+					yield [i, coerce(i, this.__type.itemType, this.__onCommit).jsValue()];
 				}
 			};
 		} else {
@@ -258,7 +290,7 @@ class _Iterator {
 		return this;
 	}
 	flatJsValue() {
-		return this.collection;
+		return this.__collection;
 	}
 }
 class _Object {
@@ -320,7 +352,11 @@ function coerce(v, t, onCommit) {
 	} else if(t.constructor == _Object) {
 		return new _ObjectInstance(t, v, onCommit);
 	} else if(t.constructor == _Iter) {
-		return new _Iterator(t, v);
+		if(v.constructor == Array) {
+			return _Array(t, v, onCommit);
+		} else {
+			return new _Iterator(t, v);
+		}
 	} else {
 		return new t(v);
 	}
@@ -331,10 +367,10 @@ function equals(l, r) {
 		return l == r;
 	}
 	if(l.__isIter) {
-		l = l.collection;
+		l = l.__collection;
 	}
 	if(r.__isIter) {
-		r = r.collection;
+		r = r.__collection;
 	}
 	if(isPrimitive(l) || isPrimitive(r)) {
 		return l === r;
@@ -378,11 +414,11 @@ class _ObjectInstance {
 		if(onCommit) {
 			onCommit = onCommit.bind(null, this);
 		}
-		Object.defineProperty(this, '__type', {enumerable: false, writable: true, value: type});
-		Object.defineProperty(this, '__changes', {enumerable: false, writable: true, value: {}});
-		Object.defineProperty(this, '__props', {enumerable: false, writable: true, value: {}});
-		Object.defineProperty(this, '__isData', {enumerable: false, writable: true, value: true});
-		Object.defineProperty(this, '__onCommit', {enumerable: false, writable: true, value: onCommit});
+		Object.defineProperty(this, '__type', {value: type});
+		Object.defineProperty(this, '__changes', {writable: true, value: {}});
+		Object.defineProperty(this, '__props', {writable: true, value: {}});
+		Object.defineProperty(this, '__isData', {value: true});
+		Object.defineProperty(this, '__onCommit', {value: onCommit});
 		for(let key in type.props) {
 			Object.defineProperty(this, key, {
 				enumerable: true,
@@ -463,7 +499,7 @@ w.Thing = w.Thing || {
 		_Iter,
 		_Iterator,
 		_Direction,
-		// _Array,
+		_Array,
 		_Object,
 		_ObjectInstance,
 	},

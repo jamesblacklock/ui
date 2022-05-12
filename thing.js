@@ -348,13 +348,13 @@ class _Iterator {
 		if(collection.constructor == Array) {
 			this.iter = function*() {
 				for(let [i, j] of collection.entries()) {
-					yield [i, j/*coerce(j, this.__type.itemType)*/.jsValue()];
+					yield [i, j];
 				}
 			};
 		} else if(collection.constructor == Number) {
 			this.iter = function*() {
 				for(let i = 0; i<collection; i++) {
-					yield [i, coerce(i, this.__type.itemType, this.__onCommit).jsValue()];
+					yield [i, coerce(i, this.__type.itemType)];
 				}
 			};
 		} else {
@@ -486,14 +486,13 @@ class _ObjectInstance {
 			values = type;
 			type = deriveType(type);
 		}
-		if(onCommit) {
-			onCommit = onCommit.bind(null, this);
-		}
+		
 		Object.defineProperty(this, '__type', {value: type});
 		Object.defineProperty(this, '__changes', {writable: true, value: {}});
 		Object.defineProperty(this, '__props', {writable: true, value: {}});
 		Object.defineProperty(this, '__isData', {value: true});
 		Object.defineProperty(this, '__onCommit', {value: onCommit});
+		Object.defineProperty(this, '__blockCommitRecursion', {writable: true, value: 0});
 		for(let key in type.props) {
 			Object.defineProperty(this, key, {
 				enumerable: true,
@@ -507,7 +506,7 @@ class _ObjectInstance {
 					return result;
 				},
 				set(value) {
-					value = coerce(value, this.__type.props[key], onCommit);
+					value = coerce(value, this.__type.props[key], () => this.commit());
 					if(equals(value.jsValue(), this.__props[key].jsValue())) {
 						delete this.__changes[key];
 					} else {
@@ -516,7 +515,7 @@ class _ObjectInstance {
 					// this.commit(); // IMMEDIATE COMMIT
 				},
 			});
-			this.__props[key] = type.props[key].__default(onCommit);
+			this.__props[key] = type.props[key].__default(() => this.commit());
 		}
 		Object.seal(this);
 		if(values != null) {
@@ -544,6 +543,11 @@ class _ObjectInstance {
 	}
 
 	commit() {
+		if(this.__blockCommitRecursion) {
+			return true;
+		}
+		this.__blockCommitRecursion = true;
+
 		let changes = Object.entries(this.__changes);
 		let dirty = changes.length > 0;
 		for(let [key, value] of changes) {
@@ -556,9 +560,10 @@ class _ObjectInstance {
 		}
 		this.__changes = {};
 		if(dirty && this.__onCommit) {
-			this.__onCommit();
+			this.__onCommit.call(null, this);
 		}
 		// console.log('dirty:', dirty);
+		this.__blockCommitRecursion = false;
 		return dirty;
 	}
 }
@@ -588,23 +593,32 @@ w.Thing = w.Thing || {
 			parent: p.__ctx,
 		};
 	},
-	__get(p, t, i, c) {
+	__get(p, t, i, c, h) {
 		let l = p.__e;
 		if(p.__g != null) {
 			l = p.__e[p.__g];
 			p.__i = i;
 		}
 		if(!l[i]) {
-			l[i] = t ? document.createElement(t) : document.createTextNode("");
+			if(t == null) {
+				l[i] = document.createTextNode("");
+			} else if(t.constructor == Function) {
+				let d = t(p, null, i, h);
+				l[i].__d = d;
+			} else {
+				l[i] = document.createElement(t);
+			}
+		} else if(t?.constructor == Function) {
+			t(p, null, i, h);
 		}
 		let e = l[i];
-		if(c != null) {
+		if(c) {
 			e.textContent = c;
 		}
 		return e;
 	},
-	__in(p, t, i, c) {
-		let e = w.Thing.__get(p, t, i, c);
+	__in(p, t, i, c, h) {
+		let e = w.Thing.__get(p, t, i, c, h);
 		w.Thing.__begin(e);
 		w.Thing.__ctx(p, e);
 		if(e.__in) {
@@ -626,8 +640,8 @@ w.Thing = w.Thing || {
 		e.__in = true;
 		return e;
 	},
-	__out(p, t, i, c) {
-		let e = w.Thing.__get(p, t, i, c);
+	__out(p, t, i, c, h) {
+		let e = w.Thing.__get(p, t, i, c, h);
 		if(e.__in) {
 			e.remove();
 			e.__in = false;
@@ -660,6 +674,6 @@ w.Thing = w.Thing || {
 			e.__events[n] = { unbound: c, bound: c.bind(d) };
 			e.addEventListener("click", e.__events[n].bound);
 		}
-	}
+	},
 };
 })(window);

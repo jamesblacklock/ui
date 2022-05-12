@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::cell::Cell;
 
 use nom::{
 	IResult,
@@ -78,6 +79,7 @@ pub fn parse(input: &str) -> Result<Component, ParseError> {
 		parse_tree: element,
 		import_decls: imports,
 		imports_map: HashMap::new(),
+		status: Cell::new(CompileStatus::Ready),
 	})
 }
 
@@ -98,12 +100,20 @@ pub struct Element {
 	pub children: Vec<Content>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum CompileStatus {
+	Ready,
+	Building,
+	Done,
+}
+
 #[derive(Debug)]
 pub struct Component {
 	pub name: String,
 	pub parse_tree: Element,
 	pub import_decls: Vec<Import>,
 	pub imports_map: HashMap<String, std::path::PathBuf>,
+	pub status: Cell<CompileStatus>,
 }
 
 fn import(input: &str) -> IResult<&str, Import> {
@@ -208,7 +218,7 @@ struct EventHandler<'a> {
 	value: Value,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Children {
 	pub single: bool,
 	pub filter: Option<Vec<String>>,

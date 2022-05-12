@@ -2,28 +2,20 @@ use std::fmt::Debug;
 use std::collections::HashMap;
 
 use super::{
-	web::{RenderWeb, WebRenderer, HtmlElement},
+	web::{RenderWeb, WebRenderer, HtmlContent},
 	parser::Element as ParserElement,
 	parser::Content as ParserContent,
 	parser::Component as ParserComponent,
 	Module,
-	LookupScope,
 	Value,
 	Direction,
 	Expr,
 	Type,
 };
 
-pub type Constructor = fn(&LookupScope, &ParserElement) -> (Box<dyn ElementImpl>, Vec<Element>);
+pub use super::parser::Children;
 
-// #[derive(Default, Debug)]
-// pub struct StandardProps {
-// 	pub width: Value,
-// 	pub height: Value,
-// 	pub x: Value,
-// 	pub y: Value,
-// 	pub background: Value,
-// }
+pub type Constructor = fn(&Module, &ParserElement) -> (Box<dyn ElementImpl>, Vec<Content>);
 
 pub trait ElementImpl: Debug + RenderWeb {
 	fn set_properties(&mut self, _properties: &HashMap<String, Value>) {}
@@ -43,31 +35,46 @@ pub struct Repeater {
 }
 
 #[derive(Debug)]
+pub enum Content {
+	Element(Element),
+	Children(Children)
+}
+
+#[derive(Debug)]
 pub struct Element {
 	pub tag: String,
 	pub condition: Option<Value>,
 	pub repeater: Option<Repeater>,
-	// pub standard_props: StandardProps,
 	pub data_types: HashMap<String, Type>,
 	pub temporary_hacky_click_handler: Option<Value>,
-	pub children: Vec<Element>,
+	pub children: Vec<Content>,
 	pub element_impl: Box<dyn ElementImpl>,
+}
+
+#[derive(Debug)]
+pub struct Component {
+	pub element: Element,
+	pub name: String,
 }
 
 pub struct ElementData<'a> {
 	pub tag: &'a String,
 	pub condition: &'a Option<Value>,
 	pub repeater: &'a Option<Repeater>,
-	// pub standard_props: &'a StandardProps,
 	pub temporary_hacky_click_handler: &'a Option<Value>,
-	pub children: &'a Vec<Element>,
+	pub children: &'a Vec<Content>,
 }
 
 impl Default for Element {
 	fn default() -> Self {
 		Element {
+			tag: String::from("<empty>"),
+			condition: None,
+			repeater: None,
+			data_types: HashMap::new(),
+			temporary_hacky_click_handler: None,
+			children: Vec::new(),
 			element_impl: Box::new(Empty),
-			..Default::default()
 		}
 	}
 }
@@ -89,12 +96,7 @@ fn update_data_type(map: &mut HashMap<String, Type>, path: &[String], t: &Type) 
 }
 
 impl Element {
-	fn construct_component(scope: LookupScope, parse_tree: &ParserComponent) -> Result<Self, String> {
-		let scope = LookupScope { module: scope.module, imports: Some(&parse_tree.imports_map), instance: None };
-		Element::construct_element(scope, &parse_tree.parse_tree)
-	}
-
-	fn construct_element(scope: LookupScope, parse_tree: &ParserElement) -> Result<Self, String> {
+	fn construct_element(scope: &Module, parse_tree: &ParserElement) -> Result<Self, String> {
 		let (mut element_impl, children) = scope.construct(&parse_tree)?;
 		element_impl.set_properties(&parse_tree.properties);
 		let repeater = parse_tree.repeater.as_ref().map(|e| Repeater {
@@ -118,6 +120,7 @@ impl Element {
 		}
 
 		for child in &children {
+			let child = match child { Content::Element(e) => e, _ => continue };
 			for (k, child_t) in &child.data_types {
 				if let Some(this_t) = data_types.get(k) {
 					if this_t != child_t {
@@ -161,34 +164,7 @@ impl Element {
 		})
 	}
 
-	fn set_properties(&mut self, parse_tree: &ParserElement) {
-		self.element_impl.set_properties(&parse_tree.properties);
-	}
-
-	// pub fn merge_props(mut props: StandardProps, new_props: &HashMap<String, Value>) -> StandardProps {
-	// 	if let Some(value) = new_props.get("width") {
-	// 		props.width = value.clone();
-	// 	}
-	// 	if let Some(value) = new_props.get("height") {
-	// 		props.height = value.clone();
-	// 	}
-	// 	if let Some(value) = new_props.get("x") {
-	// 		props.x = value.clone();
-	// 	}
-	// 	if let Some(value) = new_props.get("y") {
-	// 		props.y = value.clone();
-	// 	}
-	// 	if let Some(value) = new_props.get("background") {
-	// 		props.background = value.clone();
-	// 	}
-	// 	props
-	// }
-
-	// pub fn init_props(props: &HashMap<String, Value>) -> StandardProps {
-	// 	Self::merge_props(StandardProps::default(), props)
-	// }
-
-	pub fn render_web(&self, ctx: &mut WebRenderer) -> Option<HtmlElement> {
+	pub fn render_web(&self, ctx: &mut WebRenderer) -> Option<HtmlContent> {
 		RenderWeb::render(self.element_impl.as_ref(), self.data(), ctx)
 	}
 
@@ -204,50 +180,43 @@ impl Element {
 	}
 }
 
-fn build_elements(scope: &LookupScope, parse_tree: &[ParserContent]) -> Vec<Element> {
+fn build_elements(scope: &Module, parse_tree: &[ParserContent]) -> Vec<Content> {
 	let mut elements = Vec::new();
 	for item in parse_tree {
 		match item {
 			ParserContent::Element(e) => {
-				match Element::construct_element(scope.clone(), e) {
-					Ok(element) => elements.push(element),
+				match Element::construct_element(scope, e) {
+					Ok(element) => elements.push(Content::Element(element)),
 					Err(message) => eprintln!("Error: {}", message)
 				}
 			},
 			ParserContent::Children(c) => {
-				if let Some((scope, instance)) = scope.instance {
-					let children_elements = build_elements(scope, &instance.children);
-					// println!("{:#?}", children_elements);
-					let mut count = 0;
-					let limit = if c.single { 1 } else { i32::MAX };
-					for e in children_elements {
-						if count >= limit {
-							break;
-						}
-						elements.push(e);
-						count += 1;
-					}
-				}
+				// if let Some((scope, instance)) = scope.instance {
+				// 	let children_elements = build_elements(scope, &instance.children);
+				// 	// println!("{:#?}", children_elements);
+				// 	let mut count = 0;
+				// 	let limit = if c.single { 1 } else { i32::MAX };
+				// 	for e in children_elements {
+				// 		if count >= limit {
+				// 			break;
+				// 		}
+				// 		elements.push(e);
+				// 		count += 1;
+				// 	}
+				// }
+				elements.push(Content::Children(c.clone()))
 			},
 		}
 	}
 	elements
 }
 
-fn build_element(scope: &LookupScope, parse_tree: &ParserElement) -> Element {
-	match Element::construct_element(scope.clone(), parse_tree) {
-		Ok(element) => element,
-		Err(message) => { eprintln!("Error: {}", message); Element::default() }
-	}
-}
-
-pub fn build_component(module: &Module, parse_tree: &ParserComponent) -> Element {
-	let scope = LookupScope { module, imports: Some(&parse_tree.imports_map), instance: None };
-	match Element::construct_component(scope, parse_tree) {
-		Ok(element) => element,
+pub fn build_component(scope: &Module, parse_tree: &ParserComponent) -> Component {
+	match Element::construct_element(scope, &parse_tree.parse_tree) {
+		Ok(element) => Component { element, name: parse_tree.name.clone() },
 		Err(message) => {
 			eprintln!("Error: {}", message);
-			Element::default()
+			Component { element: Element::default(), name: parse_tree.name.clone() }
 		}
 	}
 }
@@ -316,7 +285,7 @@ impl ElementImpl for Rect {
 }
 
 impl Rect {
-	pub fn construct(scope: &LookupScope, parse_tree: &ParserElement) -> (Box<dyn ElementImpl>, Vec<Element>) {
+	pub fn construct(scope: &Module, parse_tree: &ParserElement) -> (Box<dyn ElementImpl>, Vec<Content>) {
 		let data = Rect {
 			width: Value::Px(0),
 			height: Value::Px(0),
@@ -334,7 +303,7 @@ pub struct Span {
 }
 
 impl Span {
-	pub fn construct(scope: &LookupScope, parse_tree: &ParserElement) -> (Box<dyn ElementImpl>, Vec<Element>) {
+	pub fn construct(scope: &Module, parse_tree: &ParserElement) -> (Box<dyn ElementImpl>, Vec<Content>) {
 		(Box::new(Span { color: Value::Color(0,0,0) }), build_elements(scope, &parse_tree.children))
 	}
 }
@@ -357,7 +326,7 @@ pub struct Text {
 }
 
 impl Text {
-	pub fn construct(scope: &LookupScope, parse_tree: &ParserElement) -> (Box<dyn ElementImpl>, Vec<Element>) {
+	pub fn construct(scope: &Module, parse_tree: &ParserElement) -> (Box<dyn ElementImpl>, Vec<Content>) {
 		(Box::new(Text { content: Value::String("".to_owned()) }), build_elements(scope, &parse_tree.children))
 	}
 }
@@ -375,28 +344,37 @@ impl ElementImpl for Text {
 }
 
 #[derive(Debug)]
-pub struct Component {
-	pub element: Element,
+pub struct ComponentInstance {
+	pub name: String,
+	pub data_types: HashMap<String, Type>,
+	pub properties: HashMap<String, Value>
 }
 
-impl Component {
-	pub fn construct(scope: &LookupScope, parse_tree: &ParserElement) -> Result<(Box<dyn ElementImpl>, Vec<Element>), String> {
-		let mut element = build_element(scope, parse_tree);
-		element.set_properties(scope.instance.unwrap().1);
-		Ok((Box::new(Component { element }), Vec::new()))
+impl ComponentInstance {
+	pub fn construct(scope: &Module, component: &Component, parse_tree: &ParserElement) -> (Box<dyn ElementImpl>, Vec<Content>) {
+		let data = ComponentInstance {
+			name: component.name.clone(),
+			data_types: component.element.data_types.clone(),
+			properties: HashMap::new(),
+		};
+		(Box::new(data), build_elements(scope, &parse_tree.children))
 	}
 }
 
-impl ElementImpl for Component {
+impl ElementImpl for ComponentInstance {
 	fn set_properties(&mut self, properties: &HashMap<String, Value>) {
-		self.element.element_impl.set_properties(properties)
+		for key in self.data_types.keys() {
+			if let Some(value) = properties.get(key) {
+				self.properties.insert(key.clone(), value.clone());
+			}
+		}
 	}
 	fn property_types(&self) -> HashMap<String, Type> {
-		self.element.element_impl.property_types()
+		self.data_types.clone()
 	}
-	fn base_data_types(&self) -> HashMap<String, Type> {
-		self.element.data_types.clone()
-	}
+	// fn base_data_types(&self) -> HashMap<String, Type> {
+	// 	self.data_types.clone()
+	// }
 }
 
 #[derive(Debug)]
@@ -409,7 +387,7 @@ pub struct Layout {
 }
 
 impl Layout {
-	pub fn construct(scope: &LookupScope, parse_tree: &ParserElement) -> (Box<dyn ElementImpl>, Vec<Element>) {
+	pub fn construct(scope: &Module, parse_tree: &ParserElement) -> (Box<dyn ElementImpl>, Vec<Content>) {
 		let data = Layout {
 			x: Value::Px(0),
 			y: Value::Px(0),

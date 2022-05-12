@@ -9,36 +9,12 @@ mod elements;
 mod web;
 
 use elements as el;
-use elements::{Element, Component};
+use elements::{Element, Component, ComponentInstance};
 
-#[derive(Clone)]
-pub struct LookupScope<'a> {
-	module: &'a Module,
-	imports: Option<&'a HashMap<String, PathBuf>>,
-	instance: Option<(&'a LookupScope<'a>, &'a parser::Element)>,
-}
-
-impl <'a> LookupScope<'a> {
-	fn construct(&self, parse_tree: &parser::Element) -> Result<(Box<dyn el::ElementImpl>, Vec<el::Element>), String> {
-		if self.imports.is_some() && parse_tree.path.len() == 1 {
-			if let Some(file_path) = self.imports.unwrap().get(&parse_tree.path[0]) {
-				let component = self.module.global_imports.get(file_path).unwrap();
-				let scope = LookupScope {
-					module: self.module,
-					imports: Some(&component.imports_map),
-					instance: Some((self, parse_tree)),
-				};
-				return Component::construct(&scope, &component.parse_tree);
-			}
-		}
-
-		Ok(self.module.lookup(&parse_tree.path)?(self, parse_tree))
-	}
-}
-
-pub struct Module {
-	map: HashMap<String, Item>,
-	global_imports: HashMap<PathBuf, parser::Component>,
+pub struct Module<'a> {
+	builtins: HashMap<String, Item>,
+	imports: &'a HashMap<String, PathBuf>,
+	components: &'a HashMap<PathBuf, Component>,
 }
 
 #[derive(Debug)]
@@ -48,15 +24,16 @@ pub struct Import {
 }
 
 pub enum Item {
-	Module(Module),
+	Module(HashMap<String, Item>),
 	Constructor(el::Constructor),
 }
 
-impl Module {
-	pub fn new(global_imports: HashMap<PathBuf, parser::Component>) -> Self {
+impl <'a> Module<'a> {
+	pub fn new(imports: &'a HashMap<String, PathBuf>, components: &'a HashMap<PathBuf, Component>) -> Self {
 		Self {
-			global_imports,
-			map: hashmap![
+			imports,
+			components,
+			builtins: hashmap![
 				// String::from("window") => Item::Constructor(el::Window::construct),
 				String::from("rect")   => Item::Constructor(el::Rect::construct),
 				String::from("text")   => Item::Constructor(el::Text::construct),
@@ -67,21 +44,32 @@ impl Module {
 		}
 	}
 
-	pub fn lookup(&self, path: &Vec<String>) -> Result<el::Constructor, String> {
-		assert!(path.len() > 0);
-		
-		let mut map = &self.map;
+	pub fn construct(&self, parse_tree: &parser::Element) -> Result<(Box<dyn el::ElementImpl>, Vec<el::Content>), String> {
+		assert!(parse_tree.path.len() > 0);
+
+		if parse_tree.path.len() == 1 {
+			if let Some(file_path) = self.imports.get(&parse_tree.path[0]) {
+				let component = self.components.get(file_path).unwrap();
+				return Ok(ComponentInstance::construct(self, &component, parse_tree));
+			}
+		}
+
+		Ok(self.lookup(&parse_tree.path)?(self, parse_tree))
+	}
+	
+	fn lookup(&self, path: &Vec<String>) -> Result<el::Constructor, String> {
+		let mut map = &self.builtins;
 		let mut it = path.iter().peekable();
 		loop {
 			let segment = it.next().unwrap();
 
 			if let Some(item) = map.get(segment) {
 				match item {
-					Item::Module(module) => {
+					Item::Module(next_map) => {
 						if it.peek().is_none() {
 							return Err(format!("'{}' is a module, not an element", segment))
 						}
-						map = &module.map;
+						map = next_map;
 					},
 					Item::Constructor(constructor) => {
 						if it.peek().is_some() {
@@ -207,39 +195,6 @@ impl Value {
 			_ => unreachable!(),
 		}
 	}
-
-	// pub fn to_length(self) -> Length {
-	// 	match self {
-	// 		Value::Px(px) => Length::Px(px),
-	// 		_ => Length::default(),
-	// 	}
-	// }
-
-	// pub fn to_brush(self) -> Brush {
-	// 	match self {
-	// 		Value::Color(r, g, b) => Brush::Color(r, g, b),
-	// 		_ => Brush::default(),
-	// 	}
-	// }
-
-	// pub fn to_string(self) -> String {
-	// 	match self {
-	// 		Value::String(s) => {
-	// 			// s.split_ascii_whitespace().collect::<Vec<_>>().join(" ")
-	// 			s
-	// 		},
-	// 		_ => String::default(),
-	// 	}
-	// }
-
-	// pub fn to_boolean(self) -> bool {
-	// 	match self {
-	// 		Value::Boolean(b) => {
-	// 			b
-	// 		},
-	// 		_ => false,
-	// 	}
-	// }
 }
 
 use std::{ fs, process, path::PathBuf, io::Read };
@@ -268,8 +223,8 @@ fn load_single_ui_component<'a>(exe: &str, path: PathBuf) -> Result<parser::Comp
 fn resolve_ui_import<'a>(
 	exe: &str,
 	import: Import,
-	components: &'a mut HashMap<PathBuf,
-	parser::Component>) -> Result<(String, PathBuf), String> {
+	components: &'a mut HashMap<PathBuf, parser::Component>)
+	-> Result<(String, PathBuf), String> {
 	
 	let pathbuf = if let Ok(path) = fs::canonicalize(&import.path) {
 		Some(path)
@@ -303,69 +258,53 @@ fn resolve_ui_import<'a>(
 fn load_ui_component<'a>(
 	exe: &str,
 	path: &str,
-	imports: &mut HashMap<PathBuf,
-	parser::Component>) -> Result<(PathBuf, parser::Component), String> {
+	parse_trees: &mut HashMap<PathBuf,
+	parser::Component>) -> Result<PathBuf, String> {
 	
 	let ui_import = Import { path: path.into(), alias: None };
-	let (_, path) = resolve_ui_import(exe, ui_import, imports)?;
-	let component = imports.remove(&path).unwrap();
-	Ok((path, component))
+	let (_, path) = resolve_ui_import(exe, ui_import, parse_trees)?;
+	Ok(path)
 }
 
-#[derive(Default)]
-struct Options {
-	exe: String,
-	file: String,
-	watch: bool,
-}
-
-fn process_args() -> Options {
-	let mut args = std::env::args();
-	let exe = args.next().unwrap();
-	let mut file = None;
-	let mut watch = None;
-	let mut fail = false;
-
-	for arg in args {
-		if arg == "--watch" {
-			if watch.is_some() {
-				fail = true;
-			}
-			watch = Some(true);
-		} else {
-			if file.is_some() {
-				fail = true;
-			}
-			file = Some(arg);
-		}
+fn build_impl<'a>(
+	path: &PathBuf,
+	parse_trees: &HashMap<PathBuf, parser::Component>,
+	components: &'a mut HashMap<PathBuf, Component>,
+) -> Result<&'a Component, String> {
+	use parser::CompileStatus;
+	
+	let parse_tree = parse_trees.get(path).unwrap();
+	match parse_tree.status.get() {
+		CompileStatus::Ready => {},
+		CompileStatus::Building => { return Err(String::from("encountered recursive import")); },
+		CompileStatus::Done => { return Ok(components.get(path).unwrap()); },
+	}
+	parse_tree.status.set(CompileStatus::Building);
+	
+	for (_, path) in parse_tree.imports_map.iter() {
+		build_impl(path, parse_trees, components)?;
 	}
 
-	if fail || file.is_none() {
-		eprintln!("usage: {} <FILE> [--watch]", exe);
-		process::exit(1);
-	}
+	let module = Module::new(&parse_tree.imports_map, components);
+	let component = el::build_component(&module, parse_tree);
+	// println!("{:#?}", component);
 
-	Options {
-		exe,
-		file: file.unwrap(),
-		watch: watch.unwrap_or_default(),
-	}
+	web::render(&component.element, &parse_tree.name);
+
+	parse_tree.status.set(CompileStatus::Done);
+	components.insert(path.clone(), component);
+	Ok(components.get(path).unwrap())
 }
 
 fn build(exe: &str, path: &str) -> Result<Vec<PathBuf>, String> {
-	let mut imports = HashMap::new();
-	let (path, component) = load_ui_component(&exe, &path, &mut imports)?;
+	let mut parse_trees = HashMap::new();
+	let path = load_ui_component(&exe, &path, &mut parse_trees)?;
 	// println!("{:#?}", component);
 
-	let module = Module::new(imports);
-	let root = el::build_component(&module, &component);
-	// println!("{:#?}", root);
+	let mut components = HashMap::new();
+	build_impl(&path, &parse_trees, &mut components)?;
 
-	web::render(root, &component.name);
-
-	let mut paths: Vec<_> = module.global_imports.into_iter().map(|(k, _)| k).collect();
-	paths.push(path);
-	Ok(paths)
+	Ok(components.into_iter().map(|(k,_)|k).collect())
 }
 
 fn watch(exe: &str, path: &str) {
@@ -413,6 +352,46 @@ fn watch(exe: &str, path: &str) {
 		   },
 		   _ => {},
 		}
+	}
+}
+
+#[derive(Default)]
+struct Options {
+	exe: String,
+	file: String,
+	watch: bool,
+}
+
+fn process_args() -> Options {
+	let mut args = std::env::args();
+	let exe = args.next().unwrap();
+	let mut file = None;
+	let mut watch = None;
+	let mut fail = false;
+
+	for arg in args {
+		if arg == "--watch" {
+			if watch.is_some() {
+				fail = true;
+			}
+			watch = Some(true);
+		} else {
+			if file.is_some() {
+				fail = true;
+			}
+			file = Some(arg);
+		}
+	}
+
+	if fail || file.is_none() {
+		eprintln!("usage: {} FILE [--watch]", exe);
+		process::exit(1);
+	}
+
+	Options {
+		exe,
+		file: file.unwrap(),
+		watch: watch.unwrap_or_default(),
 	}
 }
 

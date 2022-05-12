@@ -28,7 +28,7 @@ fn render_data_type(ctx: &mut WebRenderer, data_type: Type) {
 	let ind = ctx.indent();
 	match data_type {
 		Type::Object(data_types) => {
-			writeln!(ctx.file, "new w.Thing.__types._Object({{").unwrap();
+			writeln!(ctx.file, "new w.UI.__types._Object({{").unwrap();
 			ctx.indent += 1;
 			for (s, t) in data_types {
 				let ind = ctx.indent();
@@ -40,22 +40,22 @@ fn render_data_type(ctx: &mut WebRenderer, data_type: Type) {
 			write!(ctx.file, "{ind}}})").unwrap();
 		},
 		Type::Length => {
-			write!(ctx.file, "w.Thing.__types._Length").unwrap();
+			write!(ctx.file, "w.UI.__types._Length").unwrap();
 		},
 		Type::Brush => {
-			write!(ctx.file, "w.Thing.__types._Brush").unwrap();
+			write!(ctx.file, "w.UI.__types._Brush").unwrap();
 		},
 		Type::Direction => {
-			write!(ctx.file, "w.Thing.__types._Direction").unwrap();
+			write!(ctx.file, "w.UI.__types._Direction").unwrap();
 		},
 		Type::String => {
-			write!(ctx.file, "w.Thing.__types._String").unwrap();
+			write!(ctx.file, "w.UI.__types._String").unwrap();
 		},
 		Type::Boolean => {
-			write!(ctx.file, "w.Thing.__types._Boolean").unwrap();
+			write!(ctx.file, "w.UI.__types._Boolean").unwrap();
 		},
 		Type::Iter(t) => {
-			write!(ctx.file, "new w.Thing.__types._Iter(").unwrap();
+			write!(ctx.file, "new w.UI.__types._Iter(").unwrap();
 			ctx.indent += 1;
 			render_data_type(ctx, *t);
 			ctx.indent -= 1;
@@ -72,10 +72,10 @@ pub fn render<S: Into<String>>(root: &Element, name: S) {
 	let root_html = root.render_web(&mut ctx).unwrap();
 
 	writeln!(ctx.file, "(w => {{\n\
-		w.Thing.{} = (p, init, i=0, h=(() => null)) => {{\n\
+		w.UI.{} = (p, init, i=0, h=(() => null)) => {{\n\
 			\tfunction update(d) {{\n\
 				\t\tif(i == 0) {{\n\
-				\t\t\tThing.__begin(p);\n\
+				\t\t\tUI.__begin(p);\n\
 				\t\t}}", ctx.name).unwrap();
 	
 	ctx.indent = 2;
@@ -83,7 +83,7 @@ pub fn render<S: Into<String>>(root: &Element, name: S) {
 
 	write!(ctx.file, "\
 			\t}}\n\
-			\tlet d = new w.Thing.__types._ObjectInstance(\n\t\t").unwrap();
+			\tlet d = new w.UI.__types._ObjectInstance(\n\t\t").unwrap();
 
 	ctx.indent = 2;
 	render_data_type(&mut ctx, Type::Object(root.data_types.clone()));
@@ -188,7 +188,7 @@ impl HtmlComponent {
 			writeln!(ctx.file, "{ind}let h = (() => null);").unwrap();
 		}
 	
-		let name = format!("Thing.{}", self.name);
+		let name = format!("UI.{}", self.name);
 		let condition = self.condition.as_ref();
 		let repeater = self.repeater.as_ref();
 	
@@ -245,7 +245,7 @@ fn render_outer_js<F>(
 
 	if let Some(Repeater { collection, .. }) = repeater {
 		render_value_js_coerce(ctx,
-			format!("{ind}Thing.__beginGroup(p, i);\n{ind}for(let [i, item] of "),
+			format!("{ind}UI.__beginGroup(p, i);\n{ind}for(let [i, item] of "),
 			collection,
 			format!(") {{\n{ind}\t(d => {{\n"),
 			Coerce::AsIter);
@@ -253,7 +253,7 @@ fn render_outer_js<F>(
 		ind = ctx.indent();
 	}
 
-	writeln!(ctx.file, "{ind}let e = Thing.__in(p, {}, i, null, h);", element_js).unwrap();
+	writeln!(ctx.file, "{ind}let e = UI.__in(p, {}, i, null, h);", element_js).unwrap();
 
 	render(ctx);
 
@@ -264,13 +264,13 @@ fn render_outer_js<F>(
 		writeln!(ctx.file, "\
 			{ind}\t}})({{ __props: {{ ...d.__props, {index}{item}: item }} }});\n\
 			{ind}}}\n\
-			{ind}Thing.__endGroup(p);").unwrap();
+			{ind}UI.__endGroup(p);").unwrap();
 	}
 
 	if condition.is_some() {
 		ctx.indent -= 1;
 		ind = ctx.indent();
-		writeln!(ctx.file, "{ind}}} else {{\n{ind}\tThing.__out(p, {}, i, null, h);\n{ind}}}", element_js).unwrap();
+		writeln!(ctx.file, "{ind}}} else {{\n{ind}\tUI.__out(p, {}, i, null, h);\n{ind}}}", element_js).unwrap();
 	}
 }
 
@@ -293,10 +293,10 @@ fn render_content_js(content: &[HtmlContent], ctx: &mut WebRenderer) {
 				writeln!(ctx.file, "{ind}}})(e, d, {i});").unwrap();
 			},
 			HtmlContent::Text(value) => {
-				render_value_js_coerce(ctx, format!("{ind}Thing.__in(e, null, {i}, "), value, ");\n", Coerce::AsPrimitive);
+				render_value_js_coerce(ctx, format!("{ind}UI.__in(e, null, {i}, "), value, ");\n", Coerce::AsPrimitive);
 			},
 			HtmlContent::Children(_) => {
-				writeln!(ctx.file, "{ind}Thing.__beginGroup(e, {i}); h(e); Thing.__endGroup(e);").unwrap();
+				writeln!(ctx.file, "{ind}UI.__beginGroup(e, {i}); h(e); UI.__endGroup(e);").unwrap();
 			},
 		}
 	}
@@ -339,7 +339,7 @@ impl HtmlElement {
 			}
 
 			if let Some(handler) = self.temporary_hacky_click_handler.as_ref() {
-				render_value_js(ctx, format!("{ind}Thing.__event(e, \"click\", d, "), handler, ");\n");
+				render_value_js(ctx, format!("{ind}UI.__event(e, \"click\", d, "), handler, ");\n");
 			}
 
 			render_content_js(&self.content, ctx);

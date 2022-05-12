@@ -568,7 +568,7 @@ class _ObjectInstance {
 	}
 }
 
-w.Thing = w.Thing || {
+w.UI = w.UI || {
 	__types: {
 		_Int,
 		_Float,
@@ -618,9 +618,9 @@ w.Thing = w.Thing || {
 		return e;
 	},
 	__in(p, t, i, c, h) {
-		let e = w.Thing.__get(p, t, i, c, h);
-		w.Thing.__begin(e);
-		w.Thing.__ctx(p, e);
+		let e = w.UI.__get(p, t, i, c, h);
+		w.UI.__begin(e);
+		w.UI.__ctx(p, e);
 		if(e.__in) {
 			p.__l = e;
 			return e;
@@ -641,7 +641,7 @@ w.Thing = w.Thing || {
 		return e;
 	},
 	__out(p, t, i, c, h) {
-		let e = w.Thing.__get(p, t, i, c, h);
+		let e = w.UI.__get(p, t, i, c, h);
 		if(e.__in) {
 			e.remove();
 			e.__in = false;

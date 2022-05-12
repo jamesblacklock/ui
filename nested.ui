@@ -1,0 +1,15 @@
+rect {
+    width: (width);
+    height: (height);
+    x: (pos.x);
+    y: (pos.y);
+    background: (background);
+
+    rect {//(child.asdf) {
+        width: (child.width);
+        height: (child.height);
+        x: (pos.x);
+        y: (pos.y);
+        background: (child.background);
+    }
+}

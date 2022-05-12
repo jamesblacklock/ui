@@ -563,7 +563,8 @@ pub struct WebRenderer {
 impl WebRenderer {
 	pub fn new<S: Into<String>>(name: S) -> WebRenderer {
 		let name = name.into();
-		let path = format!("./{}.js", name);
+		std::fs::create_dir_all("./dist").unwrap();
+		let path = format!("./dist/{}.js", name);
 		let file = File::create(path).unwrap();
 		WebRenderer {
 			file,

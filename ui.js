@@ -3,17 +3,21 @@ class _Int {
 	static __default() {
 		return new _Int(0);
 	}
-	constructor(value) {
-		value = value ?? 0;
-		if(value.constructor == String) {
-			this.value = parseInt(value);
-		} else if(value.constructor == Number) {
-			this.value = value|0;
+	constructor(arg, value) {
+		if(arg != null) {
+			value = arg;
+			if(value.constructor == String) {
+				this.value = parseInt(value);
+			} else if(value.constructor == Number) {
+				this.value = value|0;
+			} else {
+				this.value = 0;
+			}
+			if(Number.isNaN(this.value)) {
+				this.value = 0;
+			}
 		} else {
-			this.value = 0;
-		}
-		if(Number.isNaN(this.value)) {
-			this.value = 0;
+			this.value = value;
 		}
 	}
 	jsValue() {
@@ -28,27 +32,28 @@ class _Length {
 	static __default() {
 		return new _Length(0);
 	}
-	constructor(arg) {
-		let unit = arg?.unit ?? 'px';
-		let value = arg?.value ?? arg ?? 0;
-		
-		if(value.value != null) {
-			value = value;
-		}
-		if(value.constructor == String) {
-			if(value.match(/^(\d*\.\d+|\d+)in$/)) {
-				unit = 'in';
-			} else if(value.match(/^(\d*\.\d+|\d+)cm$/)) {
-				unit = 'cm';
+	constructor(arg, unit, value) {
+		if(arg != null) {
+			unit = arg?.unit ?? 'px';
+			value = arg?.value ?? arg ?? 0;
+			if(value.value != null) {
+				value = value;
 			}
-			value = parseFloat(value);
-		} else if(value.constructor == Number) {
-			value = value;
-		} else {
-			value = 0;
-		}
-		if(Number.isNaN(value)) {
-			value = 0;
+			if(value.constructor == String) {
+				if(value.match(/^(\d*\.\d+|\d+)in$/)) {
+					unit = 'in';
+				} else if(value.match(/^(\d*\.\d+|\d+)cm$/)) {
+					unit = 'cm';
+				}
+				value = parseFloat(value);
+			} else if(value.constructor == Number) {
+				value = value;
+			} else {
+				value = 0;
+			}
+			if(Number.isNaN(value)) {
+				value = 0;
+			}
 		}
 		Object.defineProperty(this, 'unit', { value: unit, enumerable: true });
 		Object.defineProperty(this, 'value', { value: value, enumerable: true });
@@ -71,53 +76,57 @@ class _Brush {
 	static __default() {
 		return new _Brush();
 	}
-	constructor(arg) {
-		let transparent = { brushType: 'color', value: { r: 0, g: 0, b: 0, a: 0 } };
+	constructor(arg, brushType, value) {
+		if(arg != null) {
+			let transparent = { brushType: 'color', value: { r: 0, g: 0, b: 0, a: 0 } };
 
-		arg = arg ?? transparent;
-		if(arg.constructor == String) {
-			if(arg.match(/^#[\da-fA-F]{3}$/)) {
-				let r = hexDoubleDigit(arg[1]);
-				let g = hexDoubleDigit(arg[2]);
-				let b = hexDoubleDigit(arg[3]);
-				arg = { brushType: 'color', value: { r, g, b, a: 1 } };
-			} else if(arg.match(/^#[\da-fA-F]{4}$/)) {
-				let r = hexDoubleDigit(arg[1]);
-				let g = hexDoubleDigit(arg[2]);
-				let b = hexDoubleDigit(arg[3]);
-				let a = hexDoubleDigit(arg[4]) / 255;
-				arg = { brushType: 'color', value: { r, g, b, a } };
-			} else if(arg.match(/^#[\da-fA-F]{6}$/)) {
-				let r = parseInt(arg.slice(1,3), 16);
-				let g = parseInt(arg.slice(3,5), 16);
-				let b = parseInt(arg.slice(5,7), 16);
-				arg = { brushType: 'color', value: { r, g, b, a: 1 } };
-			} else if(arg.match(/^#[\da-fA-F]{8}$/)) {
-				let r = parseInt(arg.slice(1,3), 16);
-				let g = parseInt(arg.slice(3,5), 16);
-				let b = parseInt(arg.slice(5,7), 16);
-				let a = parseInt(arg.slice(7,9), 16) / 255;
-				arg = { brushType: 'color', value: { r, g, b, a } };
-			} else {//if(arg.match(/^rgb\(\d\)$/)) {
+			arg = arg ?? transparent;
+			if(arg.constructor == String) {
+				if(arg.match(/^#[\da-fA-F]{3}$/)) {
+					let r = hexDoubleDigit(arg[1]);
+					let g = hexDoubleDigit(arg[2]);
+					let b = hexDoubleDigit(arg[3]);
+					arg = { brushType: 'color', value: { r, g, b, a: 1 } };
+				} else if(arg.match(/^#[\da-fA-F]{4}$/)) {
+					let r = hexDoubleDigit(arg[1]);
+					let g = hexDoubleDigit(arg[2]);
+					let b = hexDoubleDigit(arg[3]);
+					let a = hexDoubleDigit(arg[4]) / 255;
+					arg = { brushType: 'color', value: { r, g, b, a } };
+				} else if(arg.match(/^#[\da-fA-F]{6}$/)) {
+					let r = parseInt(arg.slice(1,3), 16);
+					let g = parseInt(arg.slice(3,5), 16);
+					let b = parseInt(arg.slice(5,7), 16);
+					arg = { brushType: 'color', value: { r, g, b, a: 1 } };
+				} else if(arg.match(/^#[\da-fA-F]{8}$/)) {
+					let r = parseInt(arg.slice(1,3), 16);
+					let g = parseInt(arg.slice(3,5), 16);
+					let b = parseInt(arg.slice(5,7), 16);
+					let a = parseInt(arg.slice(7,9), 16) / 255;
+					arg = { brushType: 'color', value: { r, g, b, a } };
+				} else {//if(arg.match(/^rgb\(\d\)$/)) {
+					arg = transparent;
+				}
+			} else if(arg.brushType == null) {
+				arg = { brushType: 'color', value: arg };
+			}
+
+			if(arg.brushType == 'color') {
+				arg.value = {
+					r: clamp(arg.value?.r, 0, 255)|0,
+					g: clamp(arg.value?.g, 0, 255)|0,
+					b: clamp(arg.value?.b, 0, 255)|0,
+					a: clamp(arg.value?.a, 0, 1),
+				};
+			} else {
 				arg = transparent;
 			}
-		} else if(arg.brushType == null) {
-			arg = { brushType: 'color', value: arg };
+			brushType = arg.brushType;
+			value = arg.value;
 		}
 
-		if(arg.brushType == 'color') {
-			arg.value = {
-				r: clamp(arg.value?.r, 0, 255)|0,
-				g: clamp(arg.value?.g, 0, 255)|0,
-				b: clamp(arg.value?.b, 0, 255)|0,
-				a: clamp(arg.value?.a, 0, 1),
-			};
-		} else {
-			arg = transparent;
-		}
-
-		Object.defineProperty(this, 'brushType', { value: arg.brushType, enumerable: true });
-		Object.defineProperty(this, 'value', { value: arg.value, enumerable: true });
+		Object.defineProperty(this, 'brushType', { value: brushType, enumerable: true });
+		Object.defineProperty(this, 'value', { value: value, enumerable: true });
 	}
 	css() {
 		return this.jsValue();
@@ -134,8 +143,8 @@ class _Direction {
 	static __default() {
 		return new _Direction(false);
 	}
-	constructor(arg) {
-		this.vertical = arg == 'vertical';
+	constructor(arg, vertical) {
+		this.vertical = arg != null ? arg == 'vertical' : vertical;
 	}
 	css() {
 		return this.vertical ? 'column' : 'row';
@@ -152,17 +161,21 @@ class _Float {
 	static __default() {
 		return new _Float(0);
 	}
-	constructor(value) {
-		value = value ?? 0;
-		if(value.constructor == String) {
-			this.value = parseFloat(value);
-		} else if(value.constructor == Number) {
-			this.value = value;
+	constructor(arg, value) {
+		if(arg != null) {
+			value = arg;
+			if(value.constructor == String) {
+				this.value = parseFloat(value);
+			} else if(value.constructor == Number) {
+				this.value = value;
+			} else {
+				this.value = 0;
+			}
+			if(Number.isNaN(this.value)) {
+				this.value = 0;
+			}
 		} else {
-			this.value = 0;
-		}
-		if(Number.isNaN(this.value)) {
-			this.value = 0;
+			this.value = value;
 		}
 	}
 	jsValue() {
@@ -177,8 +190,8 @@ class _Boolean {
 	static __default() {
 		return new _Boolean(false);
 	}
-	constructor(value) {
-		this.value = !!value;
+	constructor(arg, value) {
+		this.value = arg != null ? !!arg : value;
 	}
 	jsValue() {
 		return this.value;
@@ -192,8 +205,8 @@ class _String {
 	static __default() {
 		return new _String("");
 	}
-	constructor(value) {
-		this.value = String(value);
+	constructor(arg, value) {
+		this.value = arg != null ? String(arg) : value;
 	}
 	jsValue() {
 		return this.value;
@@ -216,7 +229,8 @@ function _Array(type, arr, onCommit) {
 	let it = new _Iterator(type, arr.map(e => coerce(e, type.itemType, onCommit)));
 	Object.defineProperty(it, '__changes', {writable: true, value: {}});
 	Object.defineProperty(it, '__dirty', {writable: true, value: false});
-	Object.defineProperty(it, '__onCommit', {value: onCommit});
+	Object.defineProperty(it, '__onCommit', {writable: true, value: onCommit});
+	Object.defineProperty(it, '__animationFrame', {writable: true, value: onCommit});
 	Object.defineProperty(it, '__isData', {value: true});
 	Object.defineProperty(it, 'commit', {value: commit.bind(it)});
 	Object.defineProperty(it, 'flatJsValue', {value: flatJsValue.bind(it)});
@@ -321,6 +335,11 @@ function _Array(type, arr, onCommit) {
 			return (target.__changes[i|0] ?? target.__collection[i|0]).jsValue();
 		},
 		set(target, i, value) {
+			if(i == '__onCommit') {
+				target.__onCommit = value;
+				return true;
+			}
+
 			i = Number(i);
 			if(Number.isNaN(i) || i<0 || i>=target.__collection.length) { return; }
 
@@ -332,7 +351,8 @@ function _Array(type, arr, onCommit) {
 			} else {
 				target.__changes[i|0] = value;
 			}
-			// target.commit(); // IMMEDIATE COMMIT
+			w.cancelAnimationFrame(target.__animationFrame);
+			target.__animationFrame = w.requestAnimationFrame(() => target.commit()); // IMMEDIATE COMMIT
 		}
 	});
 }
@@ -491,8 +511,12 @@ class _ObjectInstance {
 		Object.defineProperty(this, '__changes', {writable: true, value: {}});
 		Object.defineProperty(this, '__props', {writable: true, value: {}});
 		Object.defineProperty(this, '__isData', {value: true});
-		Object.defineProperty(this, '__onCommit', {value: onCommit});
+		Object.defineProperty(this, '__neverCommitted', {writable: true, value: true});
+		Object.defineProperty(this, '__onCommit', {writable: true, value: onCommit});
+		Object.defineProperty(this, '__animationFrame', {writable: true, value: null});
 		Object.defineProperty(this, '__blockCommitRecursion', {writable: true, value: 0});
+
+		values = values ?? {};
 		for(let key in type.props) {
 			Object.defineProperty(this, key, {
 				enumerable: true,
@@ -507,27 +531,23 @@ class _ObjectInstance {
 				},
 				set(value) {
 					value = coerce(value, this.__type.props[key], () => this.commit());
-					if(equals(value.jsValue(), this.__props[key].jsValue())) {
+					if(equals(value.jsValue(), this.__props[key]?.jsValue())) {
 						delete this.__changes[key];
 					} else {
 						this.__changes[key] = value;
 					}
-					// this.commit(); // IMMEDIATE COMMIT
+					w.cancelAnimationFrame(this.__animationFrame);
+					this.__animationFrame = w.requestAnimationFrame(() => this.commit()); // IMMEDIATE COMMIT
 				},
 			});
-			this.__props[key] = type.props[key].__default(() => this.commit());
-		}
-		Object.seal(this);
-		if(values != null) {
-			for(let key in values) {
-				if(key in this.__props) {
-					this[key] = values[key];
-				} else {
-					console.error('tried to set invalid property:', key);
-				}
+
+			if(key in values) {
+				this.__props[key] = coerce(values[key], this.__type.props[key], () => this.commit());
+			} else {
+				this.__props[key] = type.props[key].__default(() => this.commit());
 			}
 		}
-		this.commit();
+		Object.seal(this);
 	}
 
 	jsValue() {
@@ -549,8 +569,11 @@ class _ObjectInstance {
 		this.__blockCommitRecursion = true;
 
 		let changes = Object.entries(this.__changes);
-		let dirty = changes.length > 0;
+		let dirty = changes.length > 0 || this.__neverCommitted;
 		for(let [key, value] of changes) {
+			if(value.__isData) {
+				value.__onCommit = () => this.commit();
+			}
 			this.__props[key] = value;
 		}
 		for(let key in this.__props) {
@@ -564,6 +587,7 @@ class _ObjectInstance {
 		}
 		// console.log('dirty:', dirty);
 		this.__blockCommitRecursion = false;
+		this.__neverCommitted = false;
 		return dirty;
 	}
 }
@@ -675,5 +699,24 @@ w.UI = w.UI || {
 			e.addEventListener("click", e.__events[n].bound);
 		}
 	},
+	__fixLayout(e, growLayout) {
+		if(e.style.alignSelf == "stretch") {
+			if(e.parentElement.style.flexDirection == "row") {
+				e.style.height = "";
+			} else {
+				e.style.width = "";
+			}
+		}
+		if(growLayout) {
+			if(e.parentElement.style.flexDirection == "row") {
+				e.style.width = "fit-content";
+			} else {
+				e.style.height = "fit-content";
+			}
+		}
+		e.style.minWidth = e.style.maxWidth = (e.style.width == "0px" ? "" : e.style.width);
+		e.style.minHeight = e.style.maxHeight = (e.style.height == "0px" ? "" : e.style.height);
+		e.style.flexBasis = "auto";
+	}
 };
 })(window);

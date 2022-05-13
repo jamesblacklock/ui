@@ -52,6 +52,7 @@ use nom::{
 
 use super::{
 	Direction,
+	Alignment,
 	Value,
 	Expr,
 	Import
@@ -93,6 +94,7 @@ pub struct Repeater {
 #[derive(Debug)]
 pub struct Element {
 	pub path: Vec<String>,
+	pub data: Option<Value>,
 	pub condition: Option<Value>,
 	pub repeater: Option<Repeater>,
 	pub properties: HashMap<String, Value>,
@@ -144,9 +146,26 @@ fn imports(input: &str) -> IResult<&str, Vec<Import>> {
 	many0(delimited(skip_space, import, skip_space))(input)
 }
 
+fn add_property(map: &mut HashMap<String, Value>, path: &[String], value: Value) {
+	if path.len() == 1 {
+		if map.contains_key(&path[0]) {
+			eprintln!("tried to assign property `{}` more than once", path[0]);
+		} else {
+			map.insert(path[0].clone(), value);
+		}
+	} else if let Some(Value::Object(map)) = map.get_mut(&path[0]) {
+		add_property(map, &path[1..], value);
+	} else {
+		let mut new_map = HashMap::new();
+		add_property(&mut new_map, &path[1..], value);
+		map.insert(path[0].clone(), Value::Object(new_map));
+	}
+}
+
 fn element(input: &str) -> IResult<&str, Element> {
-	let (input, (path, condition, repeater, (properties, event_handlers, children))) = tuple((
+	let (input, (path, data, condition, repeater, (properties, event_handlers, children))) = tuple((
 		terminated(path, skip_space),
+		opt(binding),
 		opt(condition),
 		opt(repeater),
 		delimited(
@@ -161,10 +180,10 @@ fn element(input: &str) -> IResult<&str, Element> {
 	))
 	(input)?;
 	
-	let properties = properties.into_iter().fold(HashMap::new(), |mut acc, p| {
-		acc.insert(p.name.to_owned(), p.value);
-		acc
-	});
+	let mut props_map = HashMap::new();
+	for prop in properties.into_iter() {
+		add_property(&mut props_map, &prop.path, prop.value);
+	}
 
 	let event_handlers = event_handlers.into_iter().fold(HashMap::new(), |mut acc, p| {
 		acc.insert(p.name.to_owned(), p.value);
@@ -181,9 +200,10 @@ fn element(input: &str) -> IResult<&str, Element> {
 
 	Ok((input, Element {
 		path,
+		data,
 		condition,
 		repeater,
-		properties,
+		properties: props_map,
 		event_handlers,
 		children,
 	}))
@@ -198,6 +218,7 @@ fn text_content(input: &str) -> IResult<&str, Element> {
 
 	Ok((input, Element {
 		path: vec!["text".to_owned()],
+		data: None,
 		condition: None,
 		repeater: None,
 		properties: hashmap!["content".to_owned() => result],
@@ -207,14 +228,14 @@ fn text_content(input: &str) -> IResult<&str, Element> {
 }
 
 #[derive(Debug)]
-struct Property<'a> {
-	name: &'a str,
+struct Property {
+	path: Vec<String>,
 	value: Value,
 }
 
 #[derive(Debug)]
-struct EventHandler<'a> {
-	name: &'a str,
+struct EventHandler {
+	name: String,
 	value: Value,
 }
 
@@ -293,7 +314,7 @@ fn condition(input: &str) -> IResult<&str, Value> {
 	(input)
 }
 
-fn repeater(input: &str) -> IResult<&str, (Option<&str>, &str, Value)> {
+fn repeater(input: &str) -> IResult<&str, (Option<String>, String, Value)> {
 	preceded(
 		terminated(tag("for"), skip_space),
 		tuple((
@@ -309,28 +330,29 @@ fn repeater(input: &str) -> IResult<&str, (Option<&str>, &str, Value)> {
 }
 
 fn property(input: &str) -> IResult<&str, Property> {
-	let (input, (name, value)) = property_or_partial_event_handler(input)?;
+	let (input, (path, value)) = property_or_partial_event_handler(input)?;
 	Ok((input, Property {
-		name,
+		path,
 		value,
 	}))
 }
 
 fn event_handler(input: &str) -> IResult<&str, EventHandler> {
 	let (input, (name, value)) = preceded(
-		char('@'),
+		char('*'),
 		property_or_partial_event_handler,
 	)
 	(input)?;
+	assert!(name.len() == 1);
 	Ok((input, EventHandler {
-		name,
+		name: name.into_iter().next().unwrap(),
 		value,
 	}))
 }
 
-fn property_or_partial_event_handler(input: &str) -> IResult<&str, (&str, Value)> {
+fn property_or_partial_event_handler(input: &str) -> IResult<&str, (Vec<String>, Value)> {
 	terminated(
-		separated_pair(name, delimited(skip_space, char(':'), skip_space), value),
+		separated_pair(path, delimited(skip_space, char(':'), skip_space), value),
 		terminated(
 			skip_space,
 			alt((
@@ -342,7 +364,7 @@ fn property_or_partial_event_handler(input: &str) -> IResult<&str, (&str, Value)
 	(input)
 }
 
-fn path(input: &str) -> IResult<&str, Vec<&str>> {
+fn path(input: &str) -> IResult<&str, Vec<String>> {
 	let (input, (first, mut rest)) = pair(
 		name,
 		many0(
@@ -354,20 +376,23 @@ fn path(input: &str) -> IResult<&str, Vec<&str>> {
 	Ok((input, rest))
 }
 
-fn name(input: &str) -> IResult<&str, &str> {
-	preceded(
-		not(
-			terminated(
-				alt((tag("import"), tag("as"), tag("if"), tag("for"), tag("in"))),
-				not(alphanumeric1)
-			)
+fn name(input: &str) -> IResult<&str, String> {
+	map(
+		preceded(
+			not(
+				terminated(
+					alt((tag("import"), tag("as"), tag("if"), tag("for"), tag("in"))),
+					not(alphanumeric1)
+				),
+			),
+			recognize(
+				pair(
+					satisfy(|c| is_alphabetic(c as u8) || c == '_'),
+					many0(satisfy(|c| is_alphanumeric(c as u8) || c == '_'))
+				),
+			),
 		),
-		recognize(
-			pair(
-				satisfy(|c| is_alphabetic(c as u8) || c == '_'),
-				many0(satisfy(|c| is_alphanumeric(c as u8) || c == '_'))
-			)
-		)
+		|e: &str| e.to_owned()
 	)
 	(input)
 }
@@ -390,6 +415,10 @@ fn enum_value(input: &str) -> IResult<&str, Value> {
 	alt((
 		map(tag(".horizontal"), |_| Value::Direction(Direction::Horizontal)),
 		map(tag(".vertical"),   |_| Value::Direction(Direction::Vertical)),
+		map(tag(".stretch"),    |_| Value::Alignment(Alignment::Stretch)),
+		map(tag(".center"),     |_| Value::Alignment(Alignment::Center)),
+		map(tag(".start"),      |_| Value::Alignment(Alignment::Start)),
+		map(tag(".end"),        |_| Value::Alignment(Alignment::End)),
 	))
 	(input)
 }

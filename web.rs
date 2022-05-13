@@ -8,6 +8,7 @@ use super::{
 	Expr,
 	Type,
 	Direction,
+	Alignment,
 	elements::{
 		// Window,
 		Rect,
@@ -21,6 +22,7 @@ use super::{
 		ComponentInstance,
 		Content,
 		Children,
+		AddedProperties,
 	}
 };
 
@@ -92,134 +94,29 @@ pub fn render<S: Into<String>>(root: &Element, name: S) {
 				\t\tinit,\n\
 				\t\tupdate,\n\
 			\t);\n\
-			\tupdate(d);\n\
+			\td.commit();\n\
 			\treturn d;\n\
 		}};\n}})(window);").unwrap();
 }
 
-#[derive(Debug)]
-pub enum HtmlContent {
-	Children(Children),
-	Component(HtmlComponent),
-	Element(HtmlElement),
-	Text(Value),
-}
-
-impl HtmlContent {
-	fn render_js(&self, ctx: &mut WebRenderer) {
-		match self {
-			HtmlContent::Element(e) => e.render_js(ctx),
-			HtmlContent::Component(c) => c.render_js(ctx),
-			_ => unreachable!(),
-		}
-	}
-}
-
-#[derive(Debug)]
-struct HtmlStyle {
-	position: Value,
-	display: Value,
-	flex: Value,
-	color: Value,
-	background: Value,
-	left: Value,
-	top: Value,
-	width: Value,
-	height: Value,
-	font_weight: Value,
-	font_style: Value,
-	flex_direction: Value,
-}
-
-impl Default for HtmlStyle {
-	fn default() -> Self {
-		HtmlStyle {
-			position: Default::default(),
-			display: Default::default(),
-			flex: Value::String(String::from("1")),
-			color: Default::default(),
-			background: Default::default(),
-			left: Default::default(),
-			top: Default::default(),
-			width: Default::default(),
-			height: Default::default(),
-			font_weight: Default::default(),
-			font_style: Default::default(),
-			flex_direction: Default::default(),
-		}
-	}
-}
-
-#[derive(Debug)]
-pub struct HtmlComponent {
-	name: String,
-	properties: HashMap<String, Value>,
-	content: Vec<HtmlContent>,
-	repeater: Option<Repeater>,
-	condition: Option<Value>,
-}
-
-impl Into<HtmlContent> for HtmlComponent {
-	fn into(self) -> HtmlContent {
-		HtmlContent::Component(self)
-	}
-}
-
-impl HtmlComponent {
-	fn new(name: &str, e: &ElementData, properties: &HashMap<String, Value>) -> Self {
-		HtmlComponent {
-			name: name.into(),
-			properties: properties.clone(),
-			content: Vec::new(),
-			repeater: e.repeater.clone(),
-			condition: e.condition.clone(),
-		}
-	}
-
-	fn render_js(&self, ctx: &mut WebRenderer) {
+fn render_added_properties(ctx: &mut WebRenderer, added_properties: &AddedProperties) {
+	if let AddedProperties::Layout(item) = added_properties {
 		let ind = ctx.indent();
-		if self.content.len() > 0 {
-			writeln!(ctx.file, "{ind}let h = (e => {{").unwrap();
-			ctx.indent += 1;
-			render_content_js(&self.content, ctx);
-			ctx.indent -= 1;
-			writeln!(ctx.file, "{ind}}});").unwrap();
-		} else {
-			writeln!(ctx.file, "{ind}let h = (() => null);").unwrap();
+		if item.stretch.is_set() {
+			render_value_js_coerce(
+				ctx,
+				format!("{ind}e.style.flex = "),
+				&item.stretch,
+				";\n",
+				Coerce::AsCss);
 		}
-	
-		let name = format!("UI.{}", self.name);
-		let condition = self.condition.as_ref();
-		let repeater = self.repeater.as_ref();
-	
-		let render = |ctx: &mut WebRenderer| {
-			let ind = ctx.indent();
-			for (k, v) in &self.properties {
-				render_value_js(ctx, format!("{ind}e.__d.__changes.{k} = "), v, ";\n");
-			}
-			writeln!(ctx.file, "{ind}e.__d.commit();").unwrap();
-		};
-	
-		render_outer_js(ctx, &name, condition, repeater, render);
-	}
-}
-
-#[derive(Debug)]
-pub struct HtmlElement {
-	tag: &'static str,
-	style: HtmlStyle,
-	position_children: &'static str,
-	display_children: &'static str,
-	attrs: HashMap<String, Value>,
-	content: Vec<HtmlContent>,
-	repeater: Option<Repeater>,
-	condition: Option<Value>,
-	temporary_hacky_click_handler: Option<Value>,
-}
-
-impl Into<HtmlContent> for HtmlElement {
-	fn into(self) -> HtmlContent {
-		HtmlContent::Element(self)
+		render_value_js_coerce(
+			ctx,
+			format!("{ind}e.style.alignSelf = "),
+			&item.align,
+			";\n",
+			Coerce::AsCss);
+		writeln!(ctx.file, "{ind}UI.__fixLayout(e, {});", item.grow_layout).unwrap();
 	}
 }
 
@@ -302,6 +199,141 @@ fn render_content_js(content: &[HtmlContent], ctx: &mut WebRenderer) {
 	}
 }
 
+#[derive(Debug)]
+pub enum HtmlContent {
+	Children(Children),
+	Component(HtmlComponent),
+	Element(HtmlElement),
+	Text(Value),
+}
+
+impl HtmlContent {
+	fn render_js(&self, ctx: &mut WebRenderer) {
+		match self {
+			HtmlContent::Element(e) => e.render_js(ctx),
+			HtmlContent::Component(c) => c.render_js(ctx),
+			_ => unreachable!(),
+		}
+	}
+}
+
+#[derive(Debug)]
+struct HtmlStyle {
+	position: Value,
+	display: Value,
+	// flex: Value,
+	color: Value,
+	background: Value,
+	left: Value,
+	top: Value,
+	width: Value,
+	max_width: Value,
+	height: Value,
+	font_weight: Value,
+	font_style: Value,
+	flex_direction: Value,
+	overflow_hidden: Value,
+}
+
+impl Default for HtmlStyle {
+	fn default() -> Self {
+		HtmlStyle {
+			position: Default::default(),
+			display: Default::default(),
+			// flex: Value::String(String::from("1")),
+			color: Default::default(),
+			background: Default::default(),
+			left: Default::default(),
+			top: Default::default(),
+			width: Default::default(),
+			max_width: Default::default(),
+			height: Default::default(),
+			font_weight: Default::default(),
+			font_style: Default::default(),
+			flex_direction: Default::default(),
+			overflow_hidden: Default::default(),
+		}
+	}
+}
+
+#[derive(Debug)]
+pub struct HtmlComponent {
+	name: String,
+	properties: HashMap<String, Value>,
+	content: Vec<HtmlContent>,
+	repeater: Option<Repeater>,
+	condition: Option<Value>,
+	added_properties: AddedProperties,
+}
+
+impl Into<HtmlContent> for HtmlComponent {
+	fn into(self) -> HtmlContent {
+		HtmlContent::Component(self)
+	}
+}
+
+impl HtmlComponent {
+	fn new(name: &str, e: &ElementData, properties: &HashMap<String, Value>) -> Self {
+		HtmlComponent {
+			name: name.into(),
+			properties: properties.clone(),
+			content: Vec::new(),
+			repeater: e.repeater.clone(),
+			condition: e.condition.clone(),
+			added_properties: e.added_properties.clone(),
+		}
+	}
+
+	fn render_js(&self, ctx: &mut WebRenderer) {
+		let ind = ctx.indent();
+		if self.content.len() > 0 {
+			writeln!(ctx.file, "{ind}let h = (e => {{").unwrap();
+			ctx.indent += 1;
+			render_content_js(&self.content, ctx);
+			ctx.indent -= 1;
+			writeln!(ctx.file, "{ind}}});").unwrap();
+		} else {
+			writeln!(ctx.file, "{ind}let h = (() => null);").unwrap();
+		}
+	
+		let name = format!("UI.{}", self.name);
+		let condition = self.condition.as_ref();
+		let repeater = self.repeater.as_ref();
+	
+		let render = |ctx: &mut WebRenderer| {
+			let ind = ctx.indent();
+			for (k, v) in &self.properties {
+				render_value_js_coerce(ctx, format!("{ind}e.__d.__changes.{k} = "), v, ";\n", Coerce::AsRaw);
+			}
+			writeln!(ctx.file, "{ind}e.__d.commit();").unwrap();
+			render_added_properties(ctx, &self.added_properties);
+		};
+	
+		render_outer_js(ctx, &name, condition, repeater, render);
+	}
+}
+
+#[derive(Debug)]
+pub struct HtmlElement {
+	tag: &'static str,
+	style: HtmlStyle,
+	position_children: &'static str,
+	display_children: &'static str,
+	attrs: HashMap<String, Value>,
+	content: Vec<HtmlContent>,
+	repeater: Option<Repeater>,
+	condition: Option<Value>,
+	temporary_hacky_click_handler: Option<Value>,
+	added_properties: AddedProperties,
+	original_element_type: Option<String>,
+}
+
+impl Into<HtmlContent> for HtmlElement {
+	fn into(self) -> HtmlContent {
+		HtmlContent::Element(self)
+	}
+}
+
 impl HtmlElement {
 	fn new(tag: &'static str, e: &ElementData) -> Self {
 		HtmlElement {
@@ -313,7 +345,25 @@ impl HtmlElement {
 			content: Vec::new(),
 			repeater: e.repeater.clone(),
 			condition: e.condition.clone(),
+			added_properties: e.added_properties.clone(),
 			temporary_hacky_click_handler: e.temporary_hacky_click_handler.clone(),
+			original_element_type: Some(e.tag.clone()),
+		}
+	}
+
+	fn plain(tag: &'static str) -> Self {
+		HtmlElement {
+			tag,
+			position_children: "absolute",
+			display_children: "block",
+			style: HtmlStyle::default(),
+			attrs: HashMap::new(),
+			content: Vec::new(),
+			repeater: None,
+			condition: None,
+			added_properties: AddedProperties::None,
+			temporary_hacky_click_handler: None,
+			original_element_type: None,
 		}
 	}
 
@@ -336,6 +386,9 @@ impl HtmlElement {
 
 			for (k, v) in self.attrs.iter() {
 				render_value_js(ctx, format!("{ind}e.setAttribute(\"{k}\", "), v, ");\n");
+			}
+			if let Some(t) = &self.original_element_type {
+				writeln!(ctx.file, "{ind}e.setAttribute(\"element_type\", \"{}\");", t);
 			}
 
 			if let Some(handler) = self.temporary_hacky_click_handler.as_ref() {
@@ -370,14 +423,14 @@ impl HtmlElement {
 		} else {
 			writeln!(ctx.file, "{ind}e.style.display = p.__displayChildren ?? \"block\";").unwrap();
 		}
-		if self.style.flex.is_set() {
-			render_value_js_coerce(
-				ctx,
-				format!("{ind}e.style.flex = "),
-				&self.style.flex,
-				";\n",
-				Coerce::AsCss);
-		}
+		// if self.style.flex.is_set() {
+		// 	render_value_js_coerce(
+		// 		ctx,
+		// 		format!("{ind}e.style.flex = "),
+		// 		&self.style.flex,
+		// 		";\n",
+		// 		Coerce::AsCss);
+		// }
 		if self.style.flex_direction.is_set() {
 			render_value_js_coerce(
 				ctx,
@@ -418,6 +471,14 @@ impl HtmlElement {
 				";\n",
 				Coerce::AsCss);
 		}
+		if self.style.max_width.is_set() {
+			render_value_js_coerce(
+				ctx,
+				format!("{ind}e.style.maxWidth = "),
+				&self.style.max_width,
+				";\n",
+				Coerce::AsCss);
+		}
 		if self.style.height.is_set() {
 			render_value_js_coerce(
 				ctx,
@@ -450,6 +511,14 @@ impl HtmlElement {
 				";\n",
 				Coerce::AsCss);
 		}
+		if self.style.overflow_hidden.is_set() {
+			render_value_js(
+				ctx,
+				format!("{ind}e.style.overflow = "),
+				&self.style.overflow_hidden,
+				" ? \"hidden\" : \"\";\n");
+		}
+		render_added_properties(ctx, &self.added_properties);
 	}
 }
 
@@ -469,7 +538,8 @@ fn render_value_js_coerce<S: AsRef<str>, T: AsRef<str>>(ctx: &mut WebRenderer, b
 enum Coerce {
 	AsCss,
 	AsIter,
-	AsPrimitive
+	AsPrimitive,
+	AsRaw,
 }
 
 trait RenderJs {
@@ -491,13 +561,16 @@ impl RenderJs for Value {
 					}
 				}
 			},
-			Value::Color(r, g, b) => {
-				write!(ctx.file, "{{ r: {r}, g: {g}, b: {b} }}").unwrap();
+			Value::Color(r, g, b, a) => {
+				write!(ctx.file, "{{ r: {r}, g: {g}, b: {b}, a: {a} }}").unwrap();
 			},
 			Value::Px(px) => {
 				write!(ctx.file, "{{ length: {px}, unit: \"px\" }}").unwrap();
 			},
 			Value::Int(n) => {
+				write!(ctx.file, "{}", n).unwrap();
+			},
+			Value::Boolean(n) => {
 				write!(ctx.file, "{}", n).unwrap();
 			},
 			_ => unimplemented!("RenderJs unimplemented for {:?}", self),
@@ -511,8 +584,8 @@ impl RenderJs for Value {
 					Value::Binding(Expr::Path(path)) => {
 						write!(ctx.file, "d.__props.{}.css()", path.join(".__props.")).unwrap();
 					},
-					Value::Color(r, g, b) => {
-						write!(ctx.file, "\"rgb({r},{g},{b})\"").unwrap();
+					Value::Color(r, g, b, a) => {
+						write!(ctx.file, "\"rgba({r},{g},{b},{a})\"").unwrap();
 					},
 					Value::Px(px) => {
 						write!(ctx.file, "\"{px}px\"").unwrap();
@@ -520,10 +593,24 @@ impl RenderJs for Value {
 					Value::String(s) => {
 						write!(ctx.file, "\"{s}\"").unwrap();
 					},
+					Value::Float(f) => {
+						write!(ctx.file, "\"{f}\"").unwrap();
+					},
+					Value::Int(i) => {
+						write!(ctx.file, "\"{i}\"").unwrap();
+					},
 					Value::Direction(d) => {
 						match d {
 							Direction::Horizontal => write!(ctx.file, "\"row\"").unwrap(),
 							Direction::Vertical => write!(ctx.file, "\"column\"").unwrap(),
+						}
+					},
+					Value::Alignment(a) => {
+						match a {
+							Alignment::Stretch => write!(ctx.file, "\"stretch\"").unwrap(),
+							Alignment::Start => write!(ctx.file, "\"start\"").unwrap(),
+							Alignment::Center => write!(ctx.file, "\"center\"").unwrap(),
+							Alignment::End => write!(ctx.file, "\"end\"").unwrap(),
 						}
 					},
 					_ => unimplemented!("RenderJs Coercion AsCss unimplemented for {:?}", self),
@@ -535,6 +622,19 @@ impl RenderJs for Value {
 						write!(ctx.file, "d.__props.{}.iter()", path.join(".__props.")).unwrap();
 					},
 					_ => unimplemented!("RenderJs Coercion AsIter unimplemented for {:?}", self),
+				}
+			},
+			Coerce::AsRaw => {
+				match self {
+					Value::Px(px) => { write!(ctx.file, "new UI.__types._Length(null, \"px\", {px})").unwrap() },
+					Value::Float(f) => { write!(ctx.file, "new UI.__types._Float(null, {f})").unwrap() },
+					Value::Int(n) => { write!(ctx.file, "new UI.__types._Int(null, {n})").unwrap() },
+					Value::String(s) => { write!(ctx.file, "new UI.__types._String(null, {s})").unwrap() },
+					Value::Boolean(b) => { write!(ctx.file, "new UI.__types._Boolean(null, {b})").unwrap() },
+					Value::Color(r,g,b,a) => { write!(ctx.file, "new UI.__types._Brush(null, \"color\", {{r:{r},g:{g},b:{b},a:{a}}})").unwrap() },
+					Value::Direction(d) => { write!(ctx.file, "new UI.__types._Direction(null, {})", *d == Direction::Vertical).unwrap() },
+					Value::Binding(Expr::Path(..)) => { self.render_js(ctx) },
+					_ => unimplemented!("RenderJs Coercion AsRaw unimplemented for {:?}", self),
 				}
 			},
 			Coerce::AsPrimitive => {
@@ -607,14 +707,17 @@ impl WebRenderer {
 
 	fn render_children(&mut self, children: &Vec<Content>) {
 		for child in children.iter() {
-			match child {
-				Content::Element(element) => {
-					element.render_web(self);
-				},
-				Content::Children(children) => {
-					self.append_content(HtmlContent::Children(children.clone()))
-				},
-			}
+			self.render_child(child);
+		}
+	}
+	fn render_child(&mut self, child: &Content) {
+		match child {
+			Content::Element(element) => {
+				element.render_web(self);
+			},
+			Content::Children(children) => {
+				self.append_content(HtmlContent::Children(children.clone()))
+			},
 		}
 	}
 }
@@ -638,6 +741,7 @@ pub trait RenderWeb {
 impl RenderWeb for Rect {
 	fn render(&self, e: ElementData, ctx: &mut WebRenderer) -> Option<HtmlContent> {
 		let mut div = HtmlElement::new("div", &e);
+		div.style.overflow_hidden = self.clip.clone();
 		div.style.width = self.width.clone();
 		div.style.height = self.height.clone();
 		div.style.left = self.x.clone();
@@ -645,7 +749,24 @@ impl RenderWeb for Rect {
 		div.style.background = self.background.clone();
 
 		ctx.begin(div);
-		ctx.render_children(e.children);
+		if let AddedProperties::Layout(_) = &e.added_properties {
+			let mut div = HtmlElement::plain("div");
+			div.style.position = Value::String(String::from("absolute"));
+			ctx.begin(div);
+			for child in e.children {
+				if child.can_set_size() {
+					ctx.render_child(child);
+				}
+			}
+			ctx.end();
+			for child in e.children {
+				if !child.can_set_size() {
+					ctx.render_child(child);
+				}
+			}
+		} else {
+			ctx.render_children(e.children);
+		}
 		ctx.end()
 	}
 }
@@ -653,6 +774,8 @@ impl RenderWeb for Rect {
 impl RenderWeb for Span {
 	fn render(&self, e: ElementData, ctx: &mut WebRenderer) -> Option<HtmlContent> {
 		let mut span = HtmlElement::new("span", &e);
+		// span.style.width = Value::String(String::from("fit-content"));
+		span.style.max_width = self.max_width.clone();
 		span.style.color = self.color.clone();
 		span.position_children = "static";
 		span.display_children = "inline";
@@ -688,13 +811,16 @@ impl RenderWeb for Empty {
 impl RenderWeb for Layout {
 	fn render(&self, e: ElementData, ctx: &mut WebRenderer) -> Option<HtmlContent> {
 		let mut div = HtmlElement::new("div", &e);
-		div.style.left = self.x.clone();
-		div.style.top = self.y.clone();
-		div.style.width = self.width.clone();
-		div.style.height = self.height.clone();
+		// div.style.left = self.x.clone();
+		// div.style.top = self.y.clone();
+		if !self.grow {
+			div.style.width = Value::String(String::from("100%"));//self.width.clone();
+			div.style.height = Value::String(String::from("100%"));//self.height.clone();
+		}
+		div.style.position = Value::String(String::from("static"));
 		div.style.display = Value::String("flex".into());
 		div.style.flex_direction = self.direction.clone();
-		div.position_children = "static";
+		div.position_children = "relative";
 		div.display_children = "block";
 		
 		ctx.begin(div);

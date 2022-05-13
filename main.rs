@@ -38,13 +38,19 @@ impl <'a> Module<'a> {
 				String::from("rect")   => Item::Constructor(el::Rect::construct),
 				String::from("text")   => Item::Constructor(el::Text::construct),
 				String::from("span")   => Item::Constructor(el::Span::construct),
-				String::from("layout") => Item::Constructor(el::Layout::construct),
+				String::from("layout") => Item::Module(hashmap![
+					String::from("grow") => Item::Constructor(el::Layout::grow),
+					String::from("fill") => Item::Constructor(el::Layout::fill),
+				]),
 				// String::from("img")    => Item::Constructor(el::Img::construct),
 			]
 		}
 	}
 
-	pub fn construct(&self, parse_tree: &parser::Element) -> Result<(Box<dyn el::ElementImpl>, Vec<el::Content>), String> {
+	pub fn construct(
+		&self,
+		parse_tree: &parser::Element,
+	) -> Result<el::ConstructedElementImpl, String> {
 		assert!(parse_tree.path.len() > 0);
 
 		if parse_tree.path.len() == 1 {
@@ -54,7 +60,7 @@ impl <'a> Module<'a> {
 			}
 		}
 
-		Ok(self.lookup(&parse_tree.path)?(self, parse_tree))
+		Ok(self.lookup(&parse_tree.path)?(self, parse_tree,))
 	}
 	
 	fn lookup(&self, path: &Vec<String>) -> Result<el::Constructor, String> {
@@ -124,10 +130,18 @@ pub enum Type {
 	Object(HashMap<String, Type>),
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
 	Horizontal,
 	Vertical,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Alignment {
+	Stretch,
+	Start,
+	Center,
+	End,
 }
 
 #[derive(Debug, Clone)]
@@ -135,11 +149,13 @@ pub enum Value {
 	Px(i32),
 	Float(f32),
 	Int(i32),
-	Color(u8, u8, u8),
+	Color(u8, u8, u8, f32),
 	String(String),
 	Boolean(bool),
 	Binding(Expr),
 	Direction(Direction),
+	Alignment(Alignment),
+	Object(HashMap<String, Value>),
 	Unset,
 }
 
@@ -184,13 +200,13 @@ impl Value {
 				r = (r << 4) + r;
 				g = (g << 4) + g;
 				b = (b << 4) + b;
-				Value::Color(r, g, b)
+				Value::Color(r, g, b, 1.0)
 			},
 			6 => {
 				let r = (hex_to_int(hex[0]) << 4) + hex_to_int(hex[1]);
 				let g = (hex_to_int(hex[2]) << 4) + hex_to_int(hex[3]);
 				let b = (hex_to_int(hex[4]) << 4) + hex_to_int(hex[5]);
-				Value::Color(r, g, b)
+				Value::Color(r, g, b, 1.0)
 			},
 			_ => unreachable!(),
 		}

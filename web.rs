@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::io::Write;
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use super::{
 	Value,
@@ -69,9 +70,9 @@ fn render_data_type(ctx: &mut WebRenderer, data_type: Type) {
 	}
 }
 
-pub fn render<S: Into<String>>(root: &Element, name: S) {
-	let mut ctx = WebRenderer::new(name);
-	let root_html = root.render_web(&mut ctx).unwrap();
+pub fn render<S: Into<String>, P: Into<PathBuf>>(root: &Element, name: S, path: P) {
+	let mut ctx = WebRenderer::new(name, path);
+	let root_html = root.render_web(&mut ctx);
 
 	writeln!(ctx.file, "(w => {{\n\
 		w.UI.{} = (p, init, i=0, h=(() => null)) => {{\n\
@@ -81,7 +82,9 @@ pub fn render<S: Into<String>>(root: &Element, name: S) {
 				\t\t}}", ctx.name).unwrap();
 	
 	ctx.indent = 2;
-	root_html.render_js(&mut ctx);
+	if let Some(root_html) = root_html {
+		root_html.render_js(&mut ctx);
+	}
 
 	write!(ctx.file, "\
 			\t}}\n\
@@ -661,10 +664,11 @@ pub struct WebRenderer {
 }
 
 impl WebRenderer {
-	pub fn new<S: Into<String>>(name: S) -> WebRenderer {
+	pub fn new<S: Into<String>, P: Into<PathBuf>>(name: S, dir: P) -> WebRenderer {
 		let name = name.into();
-		std::fs::create_dir_all("./dist").unwrap();
-		let path = format!("./dist/{}.js", name);
+		let dir = dir.into();
+		std::fs::create_dir_all(&dir).unwrap();
+		let path = dir.with_file_name(format!("{}.js", name));
 		let file = File::create(path).unwrap();
 		WebRenderer {
 			file,

@@ -310,7 +310,9 @@ fn build_impl<'a>(
 	let component = el::build_component(&module, parse_tree);
 	// println!("{:#?}", component);
 
-	web::render(&component.element, &parse_tree.name);
+	let mut dir = path.parent().unwrap().to_path_buf();
+	dir.push("dist");
+	web::render(&component.element, &parse_tree.name, dir);
 
 	parse_tree.status.set(CompileStatus::Done);
 	components.insert(path.clone(), component);

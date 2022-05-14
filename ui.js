@@ -285,7 +285,18 @@ function _Array(type, arr, onCommit) {
 	function pop() {
 		setDirty(this);
 		commitNextFrame.call(this);
-		return Array.prototype.pop.call(this.__collection)?.jsValue();
+		return Array.prototype.pop.call(this.__collection)?.flatJsValue();
+	}
+
+	function splice(start, deleteCount, ...items) {
+		setDirty(this);
+		commitNextFrame.call(this);
+		return Array.prototype.splice.call(
+			this.__collection,
+			start,
+			deleteCount,
+			...items.map(e => coerce(e, type.itemType, this.__onCommit))
+		).map(e => e.flatJsValue());
 	}
 
 	function commitNextFrame() {
@@ -322,7 +333,7 @@ function _Array(type, arr, onCommit) {
 		// mutators
 		push,
 		pop,
-		splice: () => {throw new Error("unimplemented")},
+		splice,
 		shift: () => {throw new Error("unimplemented")},
 		unshift: () => {throw new Error("unimplemented")},
 		reverse: () => {throw new Error("unimplemented")},
@@ -525,6 +536,9 @@ class _ObjectInstance {
 			values = type;
 			type = deriveType(type);
 		}
+		if(values == null || typeof values != 'object') {
+			values = {};
+		}
 		
 		Object.defineProperty(this, '__type', {value: type});
 		Object.defineProperty(this, '__changes', {writable: true, value: {}});
@@ -535,7 +549,6 @@ class _ObjectInstance {
 		Object.defineProperty(this, '__animationFrame', {writable: true, value: null});
 		Object.defineProperty(this, '__blockCommitRecursion', {writable: true, value: 0});
 
-		values = values ?? {};
 		for(let key in type.props) {
 			Object.defineProperty(this, key, {
 				enumerable: true,
@@ -653,7 +666,7 @@ w.UI = w.UI || {
 			}
 		}
 		let e = l[i];
-		if(c) {
+		if(c != null) {
 			e.textContent = c;
 		}
 		return e;

@@ -279,7 +279,10 @@ function _Array(type, arr, onCommit) {
 	function push(...args) {
 		setDirty(this);
 		commitNextFrame.call(this);
-		return Array.prototype.push.apply(this.__collection, args.map(e => coerce(e, type.itemType, this.__onCommit)));
+		return Array.prototype.push.apply(
+			this.__collection,
+			args.map(e => coerce(e, type.itemType, this.__onCommit))
+		);
 	}
 
 	function pop() {
@@ -299,6 +302,54 @@ function _Array(type, arr, onCommit) {
 		).map(e => e.flatJsValue());
 	}
 
+	function shift() {
+		setDirty(this);
+		commitNextFrame.call(this);
+		return Array.prototype.shift.call(this.__collection)?.flatJsValue();
+	}
+
+	function unshift(...args) {
+		setDirty(this);
+		commitNextFrame.call(this);
+		return Array.prototype.unshift.apply(
+			this.__collection,
+			args.map(e => coerce(e, type.itemType, this.__onCommit))
+		);
+	}
+
+	function reverse(...args) {
+		setDirty(this);
+		commitNextFrame.call(this);
+		Array.prototype.reverse.call(this.__collection);
+		return this;
+	}
+
+	function sort(compareFn) {
+		setDirty(this);
+		commitNextFrame.call(this);
+		Array.prototype.sort.call(this.__collection, (a,b) => compareFn(a.flatJsValue(),b.flatJsValue()));
+		return this;
+	}
+
+	function copyWithin(...args) {
+		setDirty(this);
+		commitNextFrame.call(this);
+		Array.prototype.copyWithin.apply(this.__collection, args);
+		return this;
+	}
+
+	function fill(value, start, end) {
+		setDirty(this);
+		commitNextFrame.call(this);
+		Array.prototype.fill.call(
+			this.__collection,
+			coerce(value, type.itemType, this.__onCommit),
+			start,
+			end,
+		);
+		return this;
+	}
+	
 	function commitNextFrame() {
 		w.cancelAnimationFrame(this.__animationFrame);
 		this.__animationFrame = w.requestAnimationFrame(() => this.commit()); // IMMEDIATE COMMIT
@@ -314,6 +365,7 @@ function _Array(type, arr, onCommit) {
 		findIndex: mapValues(Array.prototype.findIndex),
 		findLast: mapValues(Array.prototype.findLast),
 		findLastIndex: mapValues(Array.prototype.findLastIndex),
+		flatMap: mapValues(Array.prototype.flat),
 		flatMap: mapValues(Array.prototype.flatMap),
 		forEach: mapValues(Array.prototype.forEach),
 		includes: mapValues(Array.prototype.includes),
@@ -334,13 +386,12 @@ function _Array(type, arr, onCommit) {
 		push,
 		pop,
 		splice,
-		shift: () => {throw new Error("unimplemented")},
-		unshift: () => {throw new Error("unimplemented")},
-		reverse: () => {throw new Error("unimplemented")},
-		sort: () => {throw new Error("unimplemented")},
-		copyWithin: () => {throw new Error("unimplemented")},
-		fill: () => {throw new Error("unimplemented")},
-		flat: () => {throw new Error("unimplemented")},
+		shift,
+		unshift,
+		reverse,
+		sort,
+		copyWithin,
+		fill,
 	};
 
 	return new Proxy(it, {

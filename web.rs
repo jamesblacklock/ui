@@ -100,6 +100,8 @@ pub fn render<S: Into<String>, P: Into<PathBuf>>(root: &Element, name: S, path: 
 			\td.commit();\n\
 			\treturn d;\n\
 		}};\n}})(window);").unwrap();
+	
+	ctx.finalize();
 }
 
 fn render_added_properties(ctx: &mut WebRenderer, added_properties: &AddedProperties) {
@@ -661,20 +663,26 @@ pub struct WebRenderer {
 	name: String,
 	indent: u32,
 	stack: Vec<HtmlContent>,
+	dir: PathBuf,
+	tempname: PathBuf,
 }
 
 impl WebRenderer {
 	pub fn new<S: Into<String>, P: Into<PathBuf>>(name: S, dir: P) -> WebRenderer {
 		let name = name.into();
-		let mut path = dir.into();
-		std::fs::create_dir_all(&path).unwrap();
-		path.push(format!("{}.js", name));
-		let file = File::create(path).unwrap();
+		let dir = dir.into();
+		std::fs::create_dir_all(&dir).unwrap();
+		let mut tempname = dir.clone();
+		let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis();
+		tempname.push(format!("{}.js.{}", name, timestamp));
+		let file = File::create(&tempname).unwrap();
 		WebRenderer {
 			file,
 			name,
 			indent: 0,
 			stack: Vec::new(),
+			dir,
+			tempname,
 		}
 	}
 
@@ -722,6 +730,22 @@ impl WebRenderer {
 			Content::Children(children) => {
 				self.append_content(HtmlContent::Children(children.clone()))
 			},
+		}
+	}
+
+	fn finalize(self) {
+		std::mem::drop(self.file);
+		let mut path = self.dir;
+		path.push(format!("{}.js", self.name));
+		if path.is_file() {
+			if std::fs::remove_file(&path).is_err() {
+				eprintln!("unable to replace file: {}", path.display());
+				return;
+			}
+		}
+		if std::fs::rename(&self.tempname, path).is_err() {
+			eprintln!("unable to rename file: {}", self.tempname.display());
+			return;
 		}
 	}
 }

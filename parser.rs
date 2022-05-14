@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::cell::Cell;
+use std::path::PathBuf;
 
 use nom::{
 	IResult,
@@ -137,7 +138,7 @@ fn import(input: &str) -> IResult<&str, Import> {
 			),
 			char(';')
 		),
-		|(path,alias)| Import { path: path.to_owned(), alias: alias.map(|e| e.to_owned()) }
+		|(path,alias)| Import { path: PathBuf::from(path), alias: alias.map(|e| e.to_owned()) }
 	)
 	(input)
 }

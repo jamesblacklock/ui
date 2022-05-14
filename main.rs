@@ -19,7 +19,7 @@ pub struct Module<'a> {
 
 #[derive(Debug)]
 pub struct Import {
-	pub path: String,
+	pub path: PathBuf,
 	pub alias: Option<String>,
 }
 
@@ -244,13 +244,13 @@ fn resolve_ui_import<'a>(
 	
 	let pathbuf = if let Ok(path) = fs::canonicalize(&import.path) {
 		Some(path)
-	} else if let Ok(path) = fs::canonicalize(import.path.clone() + ".ui") {
+	} else if let Ok(path) = fs::canonicalize(import.path.with_extension("ui")) {
 		Some(path)
 	} else {
 		None
 	};
 	let pathbuf = if pathbuf.is_none() || !pathbuf.as_ref().unwrap().is_file() {
-		return Err(format!("{}: invalid path specified: {}", exe, import.path));
+		return Err(format!("{}: invalid path specified: {}", exe, import.path.display()));
 	} else {
 		pathbuf.unwrap()
 	};
@@ -260,8 +260,13 @@ fn resolve_ui_import<'a>(
 
 	let mut component = load_single_ui_component(exe, pathbuf.clone())?;
 	
-	while let Some(import) = component.import_decls.pop() {
+	while let Some(mut import) = component.import_decls.pop() {
 		let alias = import.alias.clone();
+		if import.path.is_relative() {
+			let mut pathbuf = pathbuf.parent().unwrap().to_path_buf();
+			pathbuf.push(import.path);
+			import.path = pathbuf;
+		}
 		let (name, path) = resolve_ui_import(exe, import, components)?;
 		component.imports_map.insert(alias.unwrap_or(name), path);
 	}

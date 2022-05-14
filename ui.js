@@ -230,7 +230,7 @@ function _Array(type, arr, onCommit) {
 	Object.defineProperty(it, '__changes', {writable: true, value: {}});
 	Object.defineProperty(it, '__dirty', {writable: true, value: false});
 	Object.defineProperty(it, '__onCommit', {writable: true, value: onCommit});
-	Object.defineProperty(it, '__animationFrame', {writable: true, value: onCommit});
+	Object.defineProperty(it, '__animationFrame', {writable: true, value: null});
 	Object.defineProperty(it, '__isData', {value: true});
 	Object.defineProperty(it, 'commit', {value: commit.bind(it)});
 	Object.defineProperty(it, 'flatJsValue', {value: flatJsValue.bind(it)});
@@ -278,7 +278,19 @@ function _Array(type, arr, onCommit) {
 
 	function push(...args) {
 		setDirty(this);
-		return Array.prototype.push.apply(this.__collection, args.map(e => coerce(e, type.itemType, onCommit)));
+		commitNextFrame.call(this);
+		return Array.prototype.push.apply(this.__collection, args.map(e => coerce(e, type.itemType, this.__onCommit)));
+	}
+
+	function pop() {
+		setDirty(this);
+		commitNextFrame.call(this);
+		return Array.prototype.pop.call(this.__collection)?.jsValue();
+	}
+
+	function commitNextFrame() {
+		w.cancelAnimationFrame(this.__animationFrame);
+		this.__animationFrame = w.requestAnimationFrame(() => this.commit()); // IMMEDIATE COMMIT
 	}
 
 	let methods = {
@@ -309,7 +321,7 @@ function _Array(type, arr, onCommit) {
 
 		// mutators
 		push,
-		pop: () => {throw new Error("unimplemented")},
+		pop,
 		splice: () => {throw new Error("unimplemented")},
 		shift: () => {throw new Error("unimplemented")},
 		unshift: () => {throw new Error("unimplemented")},
@@ -343,7 +355,7 @@ function _Array(type, arr, onCommit) {
 			i = Number(i);
 			if(Number.isNaN(i) || i<0 || i>=target.__collection.length) { return; }
 
-			value = coerce(value, target.__type.itemType, target.__onCommit);
+			value = coerce(value, target.__type.itemType, onCommit);
 			if(equals(value.jsValue(), target.__collection[i|0].jsValue())) {
 				delete target.__changes[i|0];
 			} else if(target.__dirty) {
@@ -351,8 +363,7 @@ function _Array(type, arr, onCommit) {
 			} else {
 				target.__changes[i|0] = value;
 			}
-			w.cancelAnimationFrame(target.__animationFrame);
-			target.__animationFrame = w.requestAnimationFrame(() => target.commit()); // IMMEDIATE COMMIT
+			commitNextFrame.call(target);
 		}
 	});
 }
@@ -502,6 +513,14 @@ function isPrimitive(object) {
 
 class _ObjectInstance {
 	constructor(type, values, onCommit) {
+		if(onCommit == null) {
+			throw new Error('should not happen');
+		} else if(!onCommit.patched) {
+			onCommit = onCommit.bind(null, this);
+			onCommit.patched = true;
+			console.log('you should only see this once per component.', type);
+		}
+
 		if(type.constructor != _Object) {
 			values = type;
 			type = deriveType(type);
@@ -530,7 +549,7 @@ class _ObjectInstance {
 					return result;
 				},
 				set(value) {
-					value = coerce(value, this.__type.props[key], () => this.commit());
+					value = coerce(value, this.__type.props[key], this.__onCommit);
 					if(equals(value.jsValue(), this.__props[key]?.jsValue())) {
 						delete this.__changes[key];
 					} else {
@@ -542,9 +561,9 @@ class _ObjectInstance {
 			});
 
 			if(key in values) {
-				this.__props[key] = coerce(values[key], this.__type.props[key], () => this.commit());
+				this.__props[key] = coerce(values[key], this.__type.props[key], this.__onCommit);
 			} else {
-				this.__props[key] = type.props[key].__default(() => this.commit());
+				this.__props[key] = type.props[key].__default(this.__onCommit);
 			}
 		}
 		Object.seal(this);
@@ -563,17 +582,17 @@ class _ObjectInstance {
 	}
 
 	commit() {
+		// console.log(this.flatJsValue());
+		// console.log(this.__changes);
 		if(this.__blockCommitRecursion) {
-			return true;
+			throw new Error("this shouldn't happen");
+			// return true;
 		}
 		this.__blockCommitRecursion = true;
 
 		let changes = Object.entries(this.__changes);
 		let dirty = changes.length > 0 || this.__neverCommitted;
 		for(let [key, value] of changes) {
-			if(value.__isData) {
-				value.__onCommit = () => this.commit();
-			}
 			this.__props[key] = value;
 		}
 		for(let key in this.__props) {
@@ -583,7 +602,7 @@ class _ObjectInstance {
 		}
 		this.__changes = {};
 		if(dirty && this.__onCommit) {
-			this.__onCommit.call(null, this);
+			this.__onCommit();
 		}
 		// console.log('dirty:', dirty);
 		this.__blockCommitRecursion = false;
@@ -627,13 +646,11 @@ w.UI = w.UI || {
 			if(t == null) {
 				l[i] = document.createTextNode("");
 			} else if(t.constructor == Function) {
-				let d = t(p, null, i, h);
+				let d = t(p, null, i, h, false);
 				l[i].__d = d;
 			} else {
 				l[i] = document.createElement(t);
 			}
-		} else if(t?.constructor == Function) {
-			t(p, null, i, h);
 		}
 		let e = l[i];
 		if(c) {

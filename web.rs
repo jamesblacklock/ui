@@ -150,7 +150,7 @@ fn render_outer_js<F>(
 		ind = ctx.indent();
 	}
 
-	writeln!(ctx.file, "{ind}let e = UI.__in(p, {}, i, null, h);", element_js).unwrap();
+	writeln!(ctx.file, "{ind}let e = UI.__in(p, {element_js}, i, null, h);").unwrap();
 
 	render(ctx);
 

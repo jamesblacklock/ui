@@ -59,7 +59,7 @@
 		},
 		"elements": {
 			"name": "entity.name.type.ui",
-			"match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b\\s*(?=(\\([^\\)]+\\)\\s*)?({|if|for))"
+			"match": "\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b\\s*(?=(\\([^\\)]+\\)\\s*)?({|if|for))"
 		},
 		"properties": {
 			"name": "variable.ui",

@@ -14,17 +14,17 @@ use nom::{
 		multispace1,
 		satisfy,
 		char,
-		i32,
+		digit0,
+		digit1,
 		none_of,
+		one_of,
 	},
 	bytes::complete::{
 		tag,
 	},
-	// number::complete::{
-	// 	float,
-	// },
 	multi::{
 		many0,
+		many1,
 		separated_list1,
 		many1_count,
 	},
@@ -52,23 +52,22 @@ use nom::{
 };
 
 use super::{
-	Direction,
 	Alignment,
 	Value,
 	Expr,
-	Import
+	Import,
+	Ctx,
+	Type,
 };
 
 type ParseError<'a> = nom::Err<nom::error::Error<&'a str>>;
 
 pub fn parse(input: &str) -> Result<Component, ParseError> {
-	let (imports, element) = pair(
-		imports,
-		terminated(
-			delimited(skip_space, element, skip_space),
-			eof,
-		),
-	)
+	let (imports, prop_decls, element) = tuple((
+		many0(delimited(skip_space, import, skip_space)),
+		many0(delimited(skip_space, prop_decl, skip_space)),
+		terminated(delimited(skip_space, element, skip_space), eof),
+	))
 	(input)
 	.map(|(_, result)| result)?;
 
@@ -101,6 +100,13 @@ pub struct Element {
 	pub properties: HashMap<String, Value>,
 	pub event_handlers: HashMap<String, Value>,
 	pub children: Vec<Content>,
+}
+
+#[derive(Debug)]
+pub struct PropDecl {
+	pub name: String,
+	pub prop_type: Type,
+	pub default: Option<Value>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -141,10 +147,6 @@ fn import(input: &str) -> IResult<&str, Import> {
 		|(path,alias)| Import { path: PathBuf::from(path), alias: alias.map(|e| e.to_owned()) }
 	)
 	(input)
-}
-
-fn imports(input: &str) -> IResult<&str, Vec<Import>> {
-	many0(delimited(skip_space, import, skip_space))(input)
 }
 
 fn add_property(map: &mut HashMap<String, Value>, path: &[String], value: Value) {
@@ -208,6 +210,79 @@ fn element(input: &str) -> IResult<&str, Element> {
 		event_handlers,
 		children,
 	}))
+}
+
+fn prop_decl(input: &str) -> IResult<&str, PropDecl> {
+	let (input, (name, (prop_type, default))) = separated_pair(
+		name,
+		delimited(skip_space, char(':'), skip_space),
+		prop_type,
+	)
+	(input)?;
+	Ok((input, PropDecl {
+		name,
+		prop_type,
+		default,
+	}))
+}
+
+fn prop_type(input: &str) -> IResult<&str, (Type, Option<Value>)> {
+	alt((
+		pair(
+			alt((
+				map(tag("Length"),    |_| Type::Length),
+				map(tag("Brush"),     |_| Type::Brush),
+				map(tag("String"),    |_| Type::String),
+				map(tag("Boolean"),   |_| Type::Boolean),
+				map(tag("Alignment"), |_| Type::Alignment),
+				map(
+					delimited(
+						pair(char('['), skip_space),
+						prop_type,
+						pair(skip_space, char(']'))
+					),
+					|t| Type::Iter(Box::new(t.0)),
+				),
+			)),
+			terminated(
+				opt(
+					preceded(
+						delimited(skip_space, char('='), skip_space),
+						value,
+					)
+				),
+				pair(
+					skip_space,
+					alt((
+						char(';'),
+						peek(char('}')),
+					))
+				),
+			),
+		),
+		map(
+			delimited(
+				pair(char('{'), skip_space),
+				many1(delimited(skip_space, prop_decl, skip_space)),
+				pair(
+					char('}'),
+					pair(skip_space, opt(char(';')))
+				),
+			),
+			|t| {
+				let map = t.into_iter().fold(HashMap::new(), |mut acc, decl| {
+					if acc.contains_key(&decl.name) {
+						eprintln!("tried to redeclare property `{}`", decl.name);
+					} else {
+						acc.insert(decl.name, decl.prop_type);
+					}
+					acc
+				});
+				(Type::Object(map), None)
+			},
+		),
+	))
+	(input)
 }
 
 fn text_content(input: &str) -> IResult<&str, Element> {
@@ -401,8 +476,8 @@ fn name(input: &str) -> IResult<&str, String> {
 fn value(input: &str) -> IResult<&str, Value> {
 	alt((
 		px,
-		// map(float, |e| Value::Float(e)),
-		int,
+		map(float, |e| Value::Float(e)),
+		map(int, |e| Value::Int(e)),
 		map(string, |e: &str| Value::String(e.to_owned())),
 		color,
 		boolean,
@@ -412,10 +487,27 @@ fn value(input: &str) -> IResult<&str, Value> {
 	(input)
 }
 
+fn float(input: &str) -> IResult<&str, f32> {
+	map(
+		recognize(
+			pair(
+				opt(one_of("+-")),
+				alt((
+					recognize(pair(
+						digit0,
+						pair(char('.'), digit1),
+					)),
+					recognize(digit1),
+				)),
+			),
+		),
+		|e| { str::parse(e).unwrap() }
+	)
+	(input)
+}
+
 fn enum_value(input: &str) -> IResult<&str, Value> {
 	alt((
-		map(tag(".horizontal"), |_| Value::Direction(Direction::Horizontal)),
-		map(tag(".vertical"),   |_| Value::Direction(Direction::Vertical)),
 		map(tag(".stretch"),    |_| Value::Alignment(Alignment::Stretch)),
 		map(tag(".center"),     |_| Value::Alignment(Alignment::Center)),
 		map(tag(".start"),      |_| Value::Alignment(Alignment::Start)),
@@ -426,16 +518,18 @@ fn enum_value(input: &str) -> IResult<&str, Value> {
 
 fn px(input: &str) -> IResult<&str, Value> {
 	terminated(
-		map(i32, |e| Value::Px(e)),
+		map(float, |e| Value::Px(e)),
 		tag("px"),
 	)
 	(input)
 }
 
-fn int(input: &str) -> IResult<&str, Value> {
-	terminated(
-		map(i32, |e| Value::Int(e)),
-		not(alphanumeric1),
+fn int(input: &str) -> IResult<&str, i32> {
+	map(
+		recognize(
+			pair(opt(one_of("+-")), digit1),
+		),
+		|e| { str::parse(e).unwrap() }
 	)
 	(input)
 }
@@ -486,11 +580,14 @@ fn expr(input: &str) -> IResult<&str, Expr> {
 	map(
 		path,
 		|v| {
-			Expr::Path(
-				v.into_iter()
-					.map(|e| e.to_owned())
-					.collect()
-				)
+			let mut it = v.into_iter().peekable();
+			let ctx = match it.peek().unwrap().as_str() {
+				"self"   => { it.next().unwrap(); Ctx::Element },
+				"parent" => { it.next().unwrap(); Ctx::Parent },
+				_        => Ctx::Component,
+			};
+			let path = it.map(|e| e.to_owned()).collect();
+			Expr::Path(path, ctx)
 		}
 	)
 	(input)

@@ -38,9 +38,14 @@ impl <'a> Module<'a> {
 				String::from("rect")   => Item::Constructor(el::Rect::construct),
 				String::from("text")   => Item::Constructor(el::Text::construct),
 				String::from("span")   => Item::Constructor(el::Span::construct),
-				String::from("layout") => Item::Module(hashmap![
-					String::from("grow") => Item::Constructor(el::Layout::grow),
-					String::from("fill") => Item::Constructor(el::Layout::fill),
+				String::from("scroll") => Item::Constructor(el::Scroll::construct),
+				String::from("row") => Item::Module(hashmap![
+					String::from("grow") => Item::Constructor(el::Layout::row_grow),
+					String::from("stretch") => Item::Constructor(el::Layout::row_stretch),
+				]),
+				String::from("column") => Item::Module(hashmap![
+					String::from("grow") => Item::Constructor(el::Layout::column_grow),
+					String::from("stretch") => Item::Constructor(el::Layout::column_stretch),
 				]),
 				// String::from("img")    => Item::Constructor(el::Img::construct),
 			]
@@ -114,9 +119,16 @@ impl <'a> Module<'a> {
 // 	}
 // }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ctx {
+	Component,
+	Element,
+	Parent,
+}
+
 #[derive(Debug, Clone)]
 pub enum Expr {
-	Path(Vec<String>),
+	Path(Vec<String>, Ctx),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -125,15 +137,9 @@ pub enum Type {
 	Brush,
 	String,
 	Boolean,
-	Direction,
+	Alignment,
 	Iter(Box<Type>),
 	Object(HashMap<String, Type>),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Direction {
-	Horizontal,
-	Vertical,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -146,14 +152,13 @@ pub enum Alignment {
 
 #[derive(Debug, Clone)]
 pub enum Value {
-	Px(i32),
+	Px(f32),
 	Float(f32),
 	Int(i32),
 	Color(u8, u8, u8, f32),
 	String(String),
 	Boolean(bool),
 	Binding(Expr),
-	Direction(Direction),
 	Alignment(Alignment),
 	Object(HashMap<String, Value>),
 	Unset,

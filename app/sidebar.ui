@@ -1,0 +1,26 @@
+rect {
+    background: #244564;
+    width: (width);
+
+    scroll {
+        width: (parent.width);
+        height: (parent.height);
+        column.grow {
+            width: (parent.width);
+            padding: 8px;
+            row.stretch for item in (accounts) {
+                span {
+                    padding: 8px;
+                    color: #fff;
+                    (item.name)
+                }
+                span {
+                    stretch: 0;
+                    padding: 8px;
+                    color: #fff;
+                    (item.balance)
+                }
+            }
+        }
+    }
+}

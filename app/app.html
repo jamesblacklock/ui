@@ -1,0 +1,16 @@
+<script src="../ui.js"></script>
+<script src="./dist/app.js"></script>
+<script src="./dist/main_view.js"></script>
+<script src="./dist/sidebar.js"></script>
+<style>body { margin: 0 } #app { height: 100% }</style>
+<div id="app"></div>
+<script>
+	const { app } = UI;
+	let e = document.getElementById("app");
+	window.x = app(e, {
+		sidebar_width: 288,
+		some_text: 'abc',
+		accounts: [
+		],
+	});
+</script>

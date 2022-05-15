@@ -1,0 +1,30 @@
+import "./sidebar";
+import "./main_view";
+
+accounts: [{ name: String; balance: String }];
+sidebar_width: Length = 288px;
+rect: {
+	x: Length = 20px;
+	y: Length = 20px;
+	width: Length = 100px;
+	height: Length = 100px;
+}
+
+row.stretch {
+	width: (parent.width);
+	height: (parent.height);
+	sidebar {
+		accounts: (accounts);
+		width: (sidebar_width);
+	}
+	main_view {
+		rect {
+			background: #f00;
+			x: (rect.x);
+			y: (rect.y);
+			width: (rect.width);
+			height: (rect.height);
+			(some_text)
+		}
+	}
+}

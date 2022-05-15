@@ -8,11 +8,12 @@ use super::{
 	Element,
 	Expr,
 	Type,
-	Direction,
+	Ctx,
 	Alignment,
 	elements::{
 		// Window,
 		Rect,
+		Scroll,
 		Text,
 		Span,
 		// Img,
@@ -48,8 +49,8 @@ fn render_data_type(ctx: &mut WebRenderer, data_type: Type) {
 		Type::Brush => {
 			write!(ctx.file, "w.UI.__types._Brush").unwrap();
 		},
-		Type::Direction => {
-			write!(ctx.file, "w.UI.__types._Direction").unwrap();
+		Type::Alignment => {
+			write!(ctx.file, "w.UI.__types._Alignment").unwrap();
 		},
 		Type::String => {
 			write!(ctx.file, "w.UI.__types._String").unwrap();
@@ -78,7 +79,8 @@ pub fn render<S: Into<String>, P: Into<PathBuf>>(root: &Element, name: S, path: 
 		w.UI.{} = (p, init, i=0, h=(() => null)) => {{\n\
 			\tfunction update(d) {{\n\
 				\t\tif(i == 0) {{\n\
-				\t\t\tUI.__begin(p);\n\
+				\t\t\tw.UI.__begin(p);\n\
+				\t\t\tw.UI.__ctx({{}}, p);\n\
 				\t\t}}", ctx.name).unwrap();
 	
 	ctx.indent = 2;
@@ -121,7 +123,7 @@ fn render_added_properties(ctx: &mut WebRenderer, added_properties: &AddedProper
 			&item.align,
 			";\n",
 			Coerce::AsCss);
-		writeln!(ctx.file, "{ind}UI.__fixLayout(e, {});", item.grow_layout).unwrap();
+		writeln!(ctx.file, "{ind}w.UI.__fixLayout(e, {});", item.grow).unwrap();
 	}
 }
 
@@ -147,7 +149,7 @@ fn render_outer_js<F>(
 
 	if let Some(Repeater { collection, .. }) = repeater {
 		render_value_js_coerce(ctx,
-			format!("{ind}UI.__beginGroup(p, i);\n{ind}for(let [i, item] of "),
+			format!("{ind}w.UI.__beginGroup(p, i);\n{ind}for(let [i, item] of "),
 			collection,
 			format!(") {{\n{ind}\t(d => {{\n"),
 			Coerce::AsIter);
@@ -155,7 +157,7 @@ fn render_outer_js<F>(
 		ind = ctx.indent();
 	}
 
-	writeln!(ctx.file, "{ind}let e = UI.__in(p, {element_js}, i, null, h);").unwrap();
+	writeln!(ctx.file, "{ind}let e = w.UI.__in(p, {element_js}, i, null, h);").unwrap();
 
 	render(ctx);
 
@@ -166,13 +168,13 @@ fn render_outer_js<F>(
 		writeln!(ctx.file, "\
 			{ind}\t}})({{ __props: {{ ...d.__props, {index}{item}: item }} }});\n\
 			{ind}}}\n\
-			{ind}UI.__endGroup(p);").unwrap();
+			{ind}w.UI.__endGroup(p);").unwrap();
 	}
 
 	if condition.is_some() {
 		ctx.indent -= 1;
 		ind = ctx.indent();
-		writeln!(ctx.file, "{ind}}} else {{\n{ind}\tUI.__out(p, {}, i, null, h);\n{ind}}}", element_js).unwrap();
+		writeln!(ctx.file, "{ind}}} else {{\n{ind}\tw.UI.__out(p, {}, i, null, h);\n{ind}}}", element_js).unwrap();
 	}
 }
 
@@ -195,10 +197,10 @@ fn render_content_js(content: &[HtmlContent], ctx: &mut WebRenderer) {
 				writeln!(ctx.file, "{ind}}})(e, d, {i});").unwrap();
 			},
 			HtmlContent::Text(value) => {
-				render_value_js_coerce(ctx, format!("{ind}UI.__in(e, null, {i}, "), value, ");\n", Coerce::AsPrimitive);
+				render_value_js_coerce(ctx, format!("{ind}w.UI.__in(e, null, {i}, "), value, ");\n", Coerce::AsPrimitive);
 			},
 			HtmlContent::Children(_) => {
-				writeln!(ctx.file, "{ind}UI.__beginGroup(e, {i}); h(e); UI.__endGroup(e);").unwrap();
+				writeln!(ctx.file, "{ind}w.UI.__beginGroup(e, {i}); h(e); w.UI.__endGroup(e);").unwrap();
 			},
 		}
 	}
@@ -237,7 +239,10 @@ struct HtmlStyle {
 	font_weight: Value,
 	font_style: Value,
 	flex_direction: Value,
+	overflow: Value,
 	overflow_hidden: Value,
+	padding: Value,
+	white_space: Value,
 }
 
 impl Default for HtmlStyle {
@@ -254,9 +259,12 @@ impl Default for HtmlStyle {
 			max_width: Default::default(),
 			height: Default::default(),
 			font_weight: Default::default(),
+			padding: Default::default(),
 			font_style: Default::default(),
 			flex_direction: Default::default(),
+			overflow: Default::default(),
 			overflow_hidden: Default::default(),
+			white_space: Default::default(),
 		}
 	}
 }
@@ -301,7 +309,7 @@ impl HtmlComponent {
 			writeln!(ctx.file, "{ind}let h = (() => null);").unwrap();
 		}
 	
-		let name = format!("UI.{}", self.name);
+		let name = format!("w.UI.{}", self.name);
 		let condition = self.condition.as_ref();
 		let repeater = self.repeater.as_ref();
 	
@@ -310,7 +318,7 @@ impl HtmlComponent {
 			for (k, v) in &self.properties {
 				render_value_js_coerce(ctx, format!("{ind}e.__d.__changes.{k} = "), v, ";\n", Coerce::AsRaw);
 			}
-			writeln!(ctx.file, "{ind}e.__d.commit();").unwrap();
+			writeln!(ctx.file, "{ind}e.__d.commit(true);").unwrap();
 			render_added_properties(ctx, &self.added_properties);
 		};
 	
@@ -381,9 +389,7 @@ impl HtmlElement {
 			let ind = ctx.indent();
 			writeln!(ctx.file, "\
 				{ind}e.__positionChildren = \"{}\";\n\
-				{ind}e.__displayChildren = \"{}\";\n\
-				{ind}d.parent = e.__ctx.parent;\n\
-				{ind}d.self = e.__ctx;",
+				{ind}e.__displayChildren = \"{}\";",
 				self.position_children,
 				self.display_children).unwrap();
 
@@ -393,11 +399,11 @@ impl HtmlElement {
 				render_value_js(ctx, format!("{ind}e.setAttribute(\"{k}\", "), v, ");\n");
 			}
 			if let Some(t) = &self.original_element_type {
-				writeln!(ctx.file, "{ind}e.setAttribute(\"element_type\", \"{}\");", t);
+				writeln!(ctx.file, "{ind}e.setAttribute(\"element_type\", \"{}\");", t).unwrap();
 			}
 
 			if let Some(handler) = self.temporary_hacky_click_handler.as_ref() {
-				render_value_js(ctx, format!("{ind}UI.__event(e, \"click\", d, "), handler, ");\n");
+				render_value_js(ctx, format!("{ind}w.UI.__event(e, \"click\", d, "), handler, ");\n");
 			}
 
 			render_content_js(&self.content, ctx);
@@ -408,6 +414,7 @@ impl HtmlElement {
 
 	fn render_style_props(&self, ctx: &mut WebRenderer) {
 		let ind = ctx.indent();
+		writeln!(ctx.file, "{ind}e.style.boxSizing = \"border-box\";").unwrap();
 		if self.style.position.is_set() {
 			render_value_js_coerce(
 				ctx,
@@ -516,12 +523,35 @@ impl HtmlElement {
 				";\n",
 				Coerce::AsCss);
 		}
+		if self.style.padding.is_set() {
+			render_value_js_coerce(
+				ctx,
+				format!("{ind}e.style.padding = "),
+				&self.style.padding,
+				";\n",
+				Coerce::AsCss);
+		}
+		if self.style.white_space.is_set() {
+			render_value_js_coerce(
+				ctx,
+				format!("{ind}e.style.whiteSpace = "),
+				&self.style.white_space,
+				";\n",
+				Coerce::AsCss);
+		}
 		if self.style.overflow_hidden.is_set() {
 			render_value_js(
 				ctx,
 				format!("{ind}e.style.overflow = "),
 				&self.style.overflow_hidden,
 				" ? \"hidden\" : \"\";\n");
+		} else if self.style.overflow.is_set() {
+			render_value_js_coerce(
+				ctx,
+				format!("{ind}e.style.overflow = "),
+				&self.style.overflow,
+				";\n",
+				Coerce::AsCss);
 		}
 		render_added_properties(ctx, &self.added_properties);
 	}
@@ -561,8 +591,13 @@ impl RenderJs for Value {
 			},
 			Value::Binding(expr) => {
 				match expr {
-					Expr::Path(path) => {
-						write!(ctx.file, "d.__props.{}", path.join(".__props.")).unwrap();
+					Expr::Path(path, prop_ctx) => {
+						let base = match prop_ctx {
+							Ctx::Component => "d.__props.",
+							Ctx::Element   => "e.__ctx.",
+							Ctx::Parent    => "e.__ctx.parent.",
+						};
+						write!(ctx.file, "{base}{}", path.join(".__props.")).unwrap();
 					}
 				}
 			},
@@ -586,8 +621,9 @@ impl RenderJs for Value {
 		match coercion {
 			Coerce::AsCss => {
 				match self {
-					Value::Binding(Expr::Path(path)) => {
-						write!(ctx.file, "d.__props.{}.css()", path.join(".__props.")).unwrap();
+					Value::Binding(Expr::Path(..)) => {
+						self.render_js(ctx);
+						write!(ctx.file, ".css()").unwrap();
 					},
 					Value::Color(r, g, b, a) => {
 						write!(ctx.file, "\"rgba({r},{g},{b},{a})\"").unwrap();
@@ -604,12 +640,6 @@ impl RenderJs for Value {
 					Value::Int(i) => {
 						write!(ctx.file, "\"{i}\"").unwrap();
 					},
-					Value::Direction(d) => {
-						match d {
-							Direction::Horizontal => write!(ctx.file, "\"row\"").unwrap(),
-							Direction::Vertical => write!(ctx.file, "\"column\"").unwrap(),
-						}
-					},
 					Value::Alignment(a) => {
 						match a {
 							Alignment::Stretch => write!(ctx.file, "\"stretch\"").unwrap(),
@@ -623,21 +653,21 @@ impl RenderJs for Value {
 			},
 			Coerce::AsIter => {
 				match self {
-					Value::Binding(Expr::Path(path)) => {
-						write!(ctx.file, "d.__props.{}.iter()", path.join(".__props.")).unwrap();
+					Value::Binding(Expr::Path(..)) => {
+						self.render_js(ctx);
+						write!(ctx.file, ".iter()").unwrap();
 					},
 					_ => unimplemented!("RenderJs Coercion AsIter unimplemented for {:?}", self),
 				}
 			},
 			Coerce::AsRaw => {
 				match self {
-					Value::Px(px) => { write!(ctx.file, "new UI.__types._Length(null, \"px\", {px})").unwrap() },
-					Value::Float(f) => { write!(ctx.file, "new UI.__types._Float(null, {f})").unwrap() },
-					Value::Int(n) => { write!(ctx.file, "new UI.__types._Int(null, {n})").unwrap() },
-					Value::String(s) => { write!(ctx.file, "new UI.__types._String(null, {s})").unwrap() },
-					Value::Boolean(b) => { write!(ctx.file, "new UI.__types._Boolean(null, {b})").unwrap() },
-					Value::Color(r,g,b,a) => { write!(ctx.file, "new UI.__types._Brush(null, \"color\", {{r:{r},g:{g},b:{b},a:{a}}})").unwrap() },
-					Value::Direction(d) => { write!(ctx.file, "new UI.__types._Direction(null, {})", *d == Direction::Vertical).unwrap() },
+					Value::Px(px) => { write!(ctx.file, "new w.UI.__types._Length(null, \"px\", {px})").unwrap() },
+					Value::Float(f) => { write!(ctx.file, "new w.UI.__types._Float(null, {f})").unwrap() },
+					Value::Int(n) => { write!(ctx.file, "new w.UI.__types._Int(null, {n})").unwrap() },
+					Value::String(s) => { write!(ctx.file, "new w.UI.__types._String(null, {s})").unwrap() },
+					Value::Boolean(b) => { write!(ctx.file, "new w.UI.__types._Boolean(null, {b})").unwrap() },
+					Value::Color(r,g,b,a) => { write!(ctx.file, "new w.UI.__types._Brush(null, \"color\", {{r:{r},g:{g},b:{b},a:{a}}})").unwrap() },
 					Value::Binding(Expr::Path(..)) => { self.render_js(ctx) },
 					_ => unimplemented!("RenderJs Coercion AsRaw unimplemented for {:?}", self),
 				}
@@ -766,6 +796,21 @@ pub trait RenderWeb {
 // 	}
 // }
 
+impl RenderWeb for Scroll {
+	fn render(&self, e: ElementData, ctx: &mut WebRenderer) -> Option<HtmlContent> {
+		let mut div = HtmlElement::new("div", &e);
+		div.style.overflow = Value::String(String::from("auto"));
+		div.style.width = self.width.clone();
+		div.style.height = self.height.clone();
+		div.style.left = self.x.clone();
+		div.style.top = self.y.clone();
+
+		ctx.begin(div);
+		ctx.render_children(e.children);
+		ctx.end()
+	}
+}
+
 impl RenderWeb for Rect {
 	fn render(&self, e: ElementData, ctx: &mut WebRenderer) -> Option<HtmlContent> {
 		let mut div = HtmlElement::new("div", &e);
@@ -777,24 +822,7 @@ impl RenderWeb for Rect {
 		div.style.background = self.background.clone();
 
 		ctx.begin(div);
-		if let AddedProperties::Layout(_) = &e.added_properties {
-			let mut div = HtmlElement::plain("div");
-			div.style.position = Value::String(String::from("absolute"));
-			ctx.begin(div);
-			for child in e.children {
-				if child.can_set_size() {
-					ctx.render_child(child);
-				}
-			}
-			ctx.end();
-			for child in e.children {
-				if !child.can_set_size() {
-					ctx.render_child(child);
-				}
-			}
-		} else {
-			ctx.render_children(e.children);
-		}
+		ctx.render_children(e.children);
 		ctx.end()
 	}
 }
@@ -805,6 +833,8 @@ impl RenderWeb for Span {
 		// span.style.width = Value::String(String::from("fit-content"));
 		span.style.max_width = self.max_width.clone();
 		span.style.color = self.color.clone();
+		span.style.padding = self.padding.clone();
+		span.style.white_space = Value::String(String::from("nowrap"));
 		span.position_children = "static";
 		span.display_children = "inline";
 		ctx.begin(span);
@@ -838,16 +868,15 @@ impl RenderWeb for Empty {
 
 impl RenderWeb for Layout {
 	fn render(&self, e: ElementData, ctx: &mut WebRenderer) -> Option<HtmlContent> {
+		let direction = if self.column {"column"} else {"row"};
 		let mut div = HtmlElement::new("div", &e);
-		// div.style.left = self.x.clone();
-		// div.style.top = self.y.clone();
-		if !self.grow {
-			div.style.width = Value::String(String::from("100%"));//self.width.clone();
-			div.style.height = Value::String(String::from("100%"));//self.height.clone();
-		}
-		div.style.position = Value::String(String::from("static"));
+		div.style.padding = self.padding.clone();
+		div.style.width = self.width.clone();
+		div.style.height = self.height.clone();
+		div.style.left = self.x.clone();
+		div.style.top = self.y.clone();
 		div.style.display = Value::String("flex".into());
-		div.style.flex_direction = self.direction.clone();
+		div.style.flex_direction = Value::String(direction.into());
 		div.position_children = "relative";
 		div.display_children = "block";
 		

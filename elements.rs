@@ -8,10 +8,10 @@ use super::{
 	parser::Component as ParserComponent,
 	Module,
 	Value,
-	Direction,
 	Alignment,
 	Expr,
 	Type,
+	Ctx,
 };
 
 pub use super::parser::Children;
@@ -48,13 +48,11 @@ impl ConstructedElementImpl {
 	}
 }
 
-// pub type AddedPropertiesConstructor = fn() -> Box<dyn AddedProperties>;
 pub type Constructor = fn(&Module, &ParserElement) -> ConstructedElementImpl;
 
 pub trait ElementImpl: Debug + RenderWeb {
 	fn set_property(&mut self, _k: &String, _v: &Value) -> SetPropertyResult { SetPropertyResult::Ignore }
 	fn property_types(&self) -> HashMap<String, Type> { HashMap::new() }
-	fn can_set_size(&self) -> bool { false }
 }
 
 #[derive(Debug)]
@@ -72,15 +70,6 @@ pub struct Repeater {
 pub enum Content {
 	Element(Element),
 	Children(Children)
-}
-
-impl Content {
-	pub fn can_set_size(&self) -> bool {
-		match self {
-			Content::Element(e) => e.element_impl.can_set_size(),
-			Content::Children(_) => false,
-		}
-	}
 }
 
 #[derive(Debug)]
@@ -237,8 +226,10 @@ impl Element {
 		let mut data_types = HashMap::new();//element_impl.base_data_types();
 		for (k, v) in &parse_tree.properties {
 			match v {
-				Value::Binding(Expr::Path(path)) => {
-					if let Some(t) = property_types.get(k.as_str()) {
+				Value::Binding(Expr::Path(path, ctx)) => {
+					if *ctx != Ctx::Component {
+						continue;
+					} else if let Some(t) = property_types.get(k.as_str()) {
 						update_data_type(&mut data_types, path, t);
 					}
 				},
@@ -270,7 +261,7 @@ impl Element {
 			repeater.index.as_ref().map(|e| data_types.remove(e));
 			if let Some(item_type) = data_types.remove(&repeater.item) {
 				match &repeater.collection {
-					Value::Binding(Expr::Path(path)) => {
+					Value::Binding(Expr::Path(path, ..)) => {
 						update_data_type(&mut data_types, path, &Type::Iter(Box::new(item_type)));
 					},
 					_ => {
@@ -282,7 +273,7 @@ impl Element {
 
 		if let Some(condition) = condition.as_ref() {
 			match condition {
-				Value::Binding(Expr::Path(path)) => {
+				Value::Binding(Expr::Path(path, ..)) => {
 					update_data_type(&mut data_types, path, &Type::Boolean);
 				},
 				_ => {
@@ -293,7 +284,7 @@ impl Element {
 
 		if let Some(data) = data {
 			match data {
-				Value::Binding(Expr::Path(path)) => {
+				Value::Binding(Expr::Path(path, ..)) => {
 					let mut new_data_types = HashMap::new();
 					update_data_type(&mut new_data_types, &path, &Type::Object(data_types));
 					data_types = new_data_types;
@@ -458,21 +449,17 @@ impl ElementImpl for Rect {
 		}
 		SetPropertyResult::Set
 	}
-
-	fn can_set_size(&self) -> bool {
-		true
-	}
 }
 
 impl Rect {
 	pub fn construct(scope: &Module, parse_tree: &ParserElement) -> ConstructedElementImpl {
 		let data = Rect {
 			clip: Value::Boolean(true),
-			width: Value::Px(0),
-			height: Value::Px(0),
-			x: Value::Px(0),
-			y: Value::Px(0),
-			border_width: Value::Px(0),
+			width: Value::Px(0.0),
+			height: Value::Px(0.0),
+			x: Value::Px(0.0),
+			y: Value::Px(0.0),
+			border_width: Value::Px(0.0),
 			border_color: Value::Color(0,0,0,0.0),
 			background: Value::Color(0,0,0,0.0),
 		};
@@ -481,15 +468,68 @@ impl Rect {
 }
 
 #[derive(Debug)]
+pub struct Scroll {
+	pub width: Value,
+	pub height: Value,
+	pub x: Value,
+	pub y: Value,
+}
+
+impl Scroll {
+	pub fn construct(scope: &Module, parse_tree: &ParserElement) -> ConstructedElementImpl {
+		ConstructedElementImpl::new(
+			Box::new(
+				Scroll {
+					width: Value::Px(0.0),
+					height: Value::Px(0.0),
+					x: Value::Px(0.0),
+					y: Value::Px(0.0),
+				}
+			),
+			build_elements(scope, &parse_tree.children),
+		)
+	}
+}
+
+impl ElementImpl for Scroll {
+	fn property_types(&self) -> HashMap<String, Type> {
+		hashmap![
+			"width".into() => Type::Length,
+			"height".into() => Type::Length,
+			"x".into() => Type::Length,
+			"y".into() => Type::Length,
+		]
+	}
+
+	fn set_property(&mut self, k: &String, v: &Value) -> SetPropertyResult {
+		match k.as_str() {
+			"width" => { self.width = v.clone() },
+			"height" => { self.height = v.clone() },
+			"x" => { self.x = v.clone() },
+			"y" => { self.y = v.clone() },
+			_ => { return SetPropertyResult::Ignore },
+		}
+		SetPropertyResult::Set
+	}
+}
+
+#[derive(Debug)]
 pub struct Span {
 	pub color: Value,
 	pub max_width: Value,
+	pub padding: Value,
 }
 
 impl Span {
 	pub fn construct(scope: &Module, parse_tree: &ParserElement) -> ConstructedElementImpl {
 		ConstructedElementImpl::new(
-			Box::new(Span { color: Value::Color(0,0,0,1.0), max_width: Value::Unset }),
+			Box::new(
+				Span {
+					color: Value::Color(0,0,0,1.0),
+					max_width: Value::Unset,
+					padding: Value::Px(0.0),
+				}
+			),
 			build_elements(scope, &parse_tree.children),
 		)
 	}
@@ -500,6 +540,7 @@ impl ElementImpl for Span {
 		hashmap![
 			"color".into() => Type::Brush,
 			"max_width".into() => Type::Length,
+			"padding".into() => Type::Length,
 		]
 	}
 
@@ -507,13 +548,10 @@ impl ElementImpl for Span {
 		match k.as_str() {
 			"color" => { self.color = v.clone() }
 			"max_width" => { self.max_width = v.clone() }
+			"padding" => { self.padding = v.clone() }
 			_ => { return SetPropertyResult::Ignore }
 		}
 		SetPropertyResult::Set
-	}
-
-	fn can_set_size(&self) -> bool {
-		true
 	}
 }
 
@@ -550,7 +588,6 @@ pub struct ComponentInstance {
 	pub name: String,
 	pub data_types: HashMap<String, Type>,
 	pub properties: HashMap<String, Value>,
-	pub can_set_size: bool,
 }
 
 impl ComponentInstance {
@@ -563,7 +600,6 @@ impl ComponentInstance {
 			name: component.name.clone(),
 			data_types: component.element.data_types.clone(),
 			properties: HashMap::new(),
-			can_set_size: component.element.element_impl.can_set_size(),
 		};
 		ConstructedElementImpl::new(Box::new(data), build_elements(scope, &parse_tree.children))
 	}
@@ -581,35 +617,33 @@ impl ElementImpl for ComponentInstance {
 	fn property_types(&self) -> HashMap<String, Type> {
 		self.data_types.clone()
 	}
-
-	fn can_set_size(&self) -> bool {
-		self.can_set_size
-	}
 }
 
 #[derive(Debug, Clone)]
 pub struct LayoutItem {
 	pub align: Value,
 	pub stretch: Value,
-	pub grow_layout: bool,
+	pub column: bool,
+	pub grow: bool,
 }
 
 impl LayoutItem {
 	fn set_property(&mut self, k: &String, v: &Value) -> SetPropertyResult {
 		match k.as_str() {
 			"align" => { self.align = v.clone(); SetPropertyResult::Set },
-			"stretch" if !self.grow_layout => { self.stretch = v.clone(); SetPropertyResult::Set },
+			"stretch" if !self.grow => { self.stretch = v.clone(); SetPropertyResult::Set },
 			_ => { SetPropertyResult::Ignore }
 		}
 	}
 }
 
 impl LayoutItem {
-	fn new(grow_layout: bool) -> LayoutItem {
+	fn new(column: bool, grow: bool) -> LayoutItem {
 		LayoutItem {
 			align: Value::Alignment(Alignment::Stretch),
-			stretch: if grow_layout { Value::Unset } else { Value::Float(1.0) },
-			grow_layout,
+			stretch: if grow { Value::Unset } else { Value::Float(1.0) },
+			column,
+			grow,
 
 		}
 	}
@@ -617,28 +651,47 @@ impl LayoutItem {
 
 #[derive(Debug)]
 pub struct Layout {
-	// pub width: Value,
-	// pub height: Value,
-	// pub x: Value,
-	// pub y: Value,
-	pub direction: Value,
+	pub width: Value,
+	pub height: Value,
+	pub x: Value,
+	pub y: Value,
+	pub padding: Value,
+	pub column: bool,
 	pub grow: bool,
 }
 
 impl Layout {
-	pub fn grow(scope: &Module, parse_tree: &ParserElement) -> ConstructedElementImpl {
-		Self::construct(scope, parse_tree, true)
+	pub fn row_stretch(scope: &Module, parse_tree: &ParserElement) -> ConstructedElementImpl {
+		Self::construct(scope, parse_tree, false, false)
 	}
-	pub fn fill(scope: &Module, parse_tree: &ParserElement) -> ConstructedElementImpl {
-		Self::construct(scope, parse_tree, false)
+	pub fn row_grow(scope: &Module, parse_tree: &ParserElement) -> ConstructedElementImpl {
+		Self::construct(scope, parse_tree, false, true)
 	}
-	pub fn construct(scope: &Module, parse_tree: &ParserElement, grow: bool) -> ConstructedElementImpl {
+	pub fn column_stretch(scope: &Module, parse_tree: &ParserElement) -> ConstructedElementImpl {
+		Self::construct(scope, parse_tree, true, false)
+	}
+	pub fn column_grow(scope: &Module, parse_tree: &ParserElement) -> ConstructedElementImpl {
+		Self::construct(scope, parse_tree, true, true)
+	}
+	pub fn construct(scope: &Module, parse_tree: &ParserElement, column: bool, grow: bool) -> ConstructedElementImpl {
+		let (width, height) = match (column, grow) {
+			(false, false) => {
+				(Value::Px(0.0), Value::Unset)
+			},
+			(true, false) => {
+				(Value::Unset, Value::Px(0.0))
+			},
+			_ => {
+				(Value::Unset, Value::Unset)
+			}
+		};
 		let data = Layout {
-			// x: Value::Px(0),
-			// y: Value::Px(0),
-			// width: Value::Px(0),
-			// height: Value::Px(0),
-			direction: Value::Direction(Direction::Horizontal),
+			x: Value::Px(0.0),
+			y: Value::Px(0.0),
+			padding: Value::Px(0.0),
+			width,
+			height,
+			column,
 			grow,
 		};
 		ConstructedElementImpl::new(
@@ -646,47 +699,55 @@ impl Layout {
 			build_elements_with_added_properties(
 				scope,
 				&parse_tree.children,
-				AddedProperties::Layout(LayoutItem::new(grow)),
+				AddedProperties::Layout(LayoutItem::new(column, grow)),
 			)
-			.into_iter()
-			.filter(|e| {
-				if e.can_set_size() {
-					true
-				} else {
-					eprintln!("element cannot appear in a `layout` because its size cannot be set");
-					false
-				}
-			})
-			.collect()
 		)
 	}
 }
 
 impl ElementImpl for Layout {
 	fn property_types(&self) -> HashMap<String, Type> {
-		hashmap![
-			"x".into() => Type::Length,
-			"y".into() => Type::Length,
-			"width".into() => Type::Length,
-			"height".into() => Type::Length,
-			"direction".into() => Type::Direction,
-		]
+		match (self.column, self.grow) {
+			(_, false) => {
+				hashmap![
+					"x".into() => Type::Length,
+					"y".into() => Type::Length,
+					"width".into() => Type::Length,
+					"height".into() => Type::Length,
+					"padding".into() => Type::Length,
+				]
+			},
+			(false, true) => {
+				hashmap![
+					"x".into() => Type::Length,
+					"y".into() => Type::Length,
+					"height".into() => Type::Length,
+					"padding".into() => Type::Length,
+				]
+			},
+			(true, true) => {
+				hashmap![
+					"x".into() => Type::Length,
+					"y".into() => Type::Length,
+					"width".into() => Type::Length,
+					"padding".into() => Type::Length,
+				]
+			}
+		}
 	}
 
 	fn set_property(&mut self, k: &String, v: &Value) -> SetPropertyResult {
-		match k.as_str() {
-			// "width" => { self.width = v.clone() }
-			// "height" => { self.height = v.clone() }
-			// "x" => { self.x = v.clone() }
-			// "y" => { self.y = v.clone() }
-			"direction" => { self.direction = v.clone() }
+		match (k.as_str(), self.column, self.grow) {
+			("width", _, false) => { self.width = v.clone() }
+			("height", _, false) => { self.height = v.clone() }
+			("width", true, true) => { self.width = v.clone() }
+			("height", false, true) => { self.height = v.clone() }
+			("x", _, _) => { self.x = v.clone() }
+			("y", _, _) => { self.y = v.clone() }
+			("padding", _, _) => { self.padding = v.clone() }
 			_ => { return SetPropertyResult::Ignore }
 		}
 		SetPropertyResult::Set
-	}
-
-	fn can_set_size(&self) -> bool {
-		self.grow
 	}
 }
 

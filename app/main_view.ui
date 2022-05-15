@@ -1,0 +1,16 @@
+column.stretch {
+    rect {
+        background: #f5f5fa;
+        height: 70px;
+    }
+    row.stretch {
+        rect {
+            background: #fff;
+            @children
+        }
+        rect {
+            background: #f9f8fb;
+            width: 378px;
+        }
+    }
+}

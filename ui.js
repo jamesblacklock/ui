@@ -139,21 +139,30 @@ class _Brush {
 	}
 }
 
-class _Direction {
+class _Alignment {
 	static __default() {
-		return new _Direction(false);
+		return new _Alignment(false);
 	}
-	constructor(arg, vertical) {
-		this.vertical = arg != null ? arg == 'vertical' : vertical;
+	constructor(arg, value) {
+		if(arg == null) {
+			this.value = value;
+			return;
+		}
+		switch(String(arg).toLowerCase()) {
+			case 'start': this.value = 'start'; break;
+			case 'center': this.value = 'center'; break;
+			case 'end': this.value = 'end'; break;
+			default: this.value = 'stretch'; break;
+		}
 	}
 	css() {
-		return this.vertical ? 'column' : 'row';
+		return this.value;
 	}
 	jsValue() {
-		return this.vertical ? 'vertical' : 'horizontal';
+		return this.value;
 	}
 	flatJsValue() {
-		return this.jsValue();
+		return this.value;
 	}
 }
 
@@ -490,7 +499,7 @@ function typeToFlatJsValue(t) {
 		case _String:           return 'String';
 		case _Length:           return 'Length';
 		case _Brush:            return 'Brush';
-		case _Direction:        return 'Direction';
+		case _Alignment:        return 'Alignment';
 		// case _Array:            types[key] = 'e'; break;
 		default:                throw new Error('unimplemented');
 	}
@@ -580,7 +589,7 @@ class _ObjectInstance {
 		} else if(!onCommit.patched) {
 			onCommit = onCommit.bind(null, this);
 			onCommit.patched = true;
-			console.log('you should only see this once per component.', type);
+			// console.log('you should only see this once per component.', type);
 		}
 
 		if(type.constructor != _Object) {
@@ -645,7 +654,7 @@ class _ObjectInstance {
 		return object;
 	}
 
-	commit() {
+	commit(alwaysRedraw) {
 		// console.log(this.flatJsValue());
 		// console.log(this.__changes);
 		if(this.__blockCommitRecursion) {
@@ -665,7 +674,7 @@ class _ObjectInstance {
 			}
 		}
 		this.__changes = {};
-		if(dirty && this.__onCommit) {
+		if(alwaysRedraw || dirty && this.__onCommit) {
 			this.__onCommit();
 		}
 		// console.log('dirty:', dirty);
@@ -685,7 +694,7 @@ w.UI = w.UI || {
 		_Brush,
 		_Iter,
 		_Iterator,
-		_Direction,
+		_Alignment,
 		_Array,
 		_Object,
 		_ObjectInstance,
@@ -693,11 +702,12 @@ w.UI = w.UI || {
 	__begin(p) {
 		p.__l = null;
 		p.__e = p.__e || [];
-		p.__ctx = p.__ctx || {};
 	},
 	__ctx(p, e) {
 		e.__ctx = {
 			parent: p.__ctx,
+			width: new w.UI.__types._Length(null, 'px', e.clientWidth),
+			height: new w.UI.__types._Length(null, 'px', e.clientHeight),
 		};
 	},
 	__get(p, t, i, c, h) {

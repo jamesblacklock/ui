@@ -138,6 +138,7 @@ pub enum Type {
 	String,
 	Boolean,
 	Alignment,
+	Callback,
 	Iter(Box<Type>),
 	Object(HashMap<String, Type>),
 }

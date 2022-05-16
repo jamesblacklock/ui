@@ -8,7 +8,7 @@
 		{ "include": "#linecomments" },
 		{ "include": "#elements" },
 		{ "include": "#properties" },
-		{ "include": "#events" },
+		{ "include": "#children" },
 		{ "include": "#lengths" },
 		{ "include": "#booleans" },
 		{ "include": "#brushes" }
@@ -53,7 +53,7 @@
 				}
 			]
 		},
-		"events": {
+		"children": {
 			"name": "entity.name.function.ui",
 			"match": "@[a-zA-Z_][a-zA-Z0-9_]*\\b"
 		},
@@ -63,7 +63,7 @@
 		},
 		"properties": {
 			"name": "variable.ui",
-			"match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b[\\s]*(?=:)"
+			"match": "\\b[a-zA-Z_][a-zA-Z0-9_.]*\\b[\\s]*(?=:)"
 		},
 		"booleans": {
 			"name": "constant.language.ui",

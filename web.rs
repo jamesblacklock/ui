@@ -59,11 +59,18 @@ fn render_data_type(ctx: &mut WebRenderer, data_type: Type) {
 			write!(ctx.file, "w.UI.__types._Boolean").unwrap();
 		},
 		Type::Iter(t) => {
-			write!(ctx.file, "new w.UI.__types._Iter(").unwrap();
+			write!(ctx.file, "new w.UI.__types._Iter(\n{ind}\t").unwrap();
 			ctx.indent += 1;
 			render_data_type(ctx, *t);
 			ctx.indent -= 1;
-			write!(ctx.file, ")").unwrap();
+			write!(ctx.file, "\n{ind})").unwrap();
+		},
+		Type::Callback => {
+			write!(ctx.file, "w.UI.__types._Callback").unwrap();
+			// ctx.indent += 1;
+			// // render_data_type(ctx, ???);
+			// ctx.indent -= 1;
+			// write!(ctx.file, ")").unwrap();
 		},
 		// _ => {
 		// 	unimplemented!("rendering data type: {:?}", data_type);
@@ -224,7 +231,12 @@ impl HtmlContent {
 	}
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
+struct HtmlEvents {
+	click: Value,
+}
+
+#[derive(Debug, Default)]
 struct HtmlStyle {
 	position: Value,
 	display: Value,
@@ -243,30 +255,6 @@ struct HtmlStyle {
 	overflow_hidden: Value,
 	padding: Value,
 	white_space: Value,
-}
-
-impl Default for HtmlStyle {
-	fn default() -> Self {
-		HtmlStyle {
-			position: Default::default(),
-			display: Default::default(),
-			// flex: Value::String(String::from("1")),
-			color: Default::default(),
-			background: Default::default(),
-			left: Default::default(),
-			top: Default::default(),
-			width: Default::default(),
-			max_width: Default::default(),
-			height: Default::default(),
-			font_weight: Default::default(),
-			padding: Default::default(),
-			font_style: Default::default(),
-			flex_direction: Default::default(),
-			overflow: Default::default(),
-			overflow_hidden: Default::default(),
-			white_space: Default::default(),
-		}
-	}
 }
 
 #[derive(Debug)]
@@ -316,7 +304,12 @@ impl HtmlComponent {
 		let render = |ctx: &mut WebRenderer| {
 			let ind = ctx.indent();
 			for (k, v) in &self.properties {
-				render_value_js_coerce(ctx, format!("{ind}e.__d.__changes.{k} = "), v, ";\n", Coerce::AsRaw);
+				let assign_target = if let Value::Object(_) = v {
+					format!("{ind}e.__d.__props.{k}.__changes = ")
+				} else {
+					format!("{ind}e.__d.__changes.{k} = ")
+				};
+				render_value_js_coerce(ctx, assign_target, v, ";\n", Coerce::AsRaw);
 			}
 			writeln!(ctx.file, "{ind}e.__d.commit(true);").unwrap();
 			render_added_properties(ctx, &self.added_properties);
@@ -330,13 +323,13 @@ impl HtmlComponent {
 pub struct HtmlElement {
 	tag: &'static str,
 	style: HtmlStyle,
+	events: HtmlEvents,
 	position_children: &'static str,
 	display_children: &'static str,
 	attrs: HashMap<String, Value>,
 	content: Vec<HtmlContent>,
 	repeater: Option<Repeater>,
 	condition: Option<Value>,
-	temporary_hacky_click_handler: Option<Value>,
 	added_properties: AddedProperties,
 	original_element_type: Option<String>,
 }
@@ -354,31 +347,31 @@ impl HtmlElement {
 			position_children: "absolute",
 			display_children: "block",
 			style: HtmlStyle::default(),
+			events: HtmlEvents::default(),
 			attrs: HashMap::new(),
 			content: Vec::new(),
 			repeater: e.repeater.clone(),
 			condition: e.condition.clone(),
 			added_properties: e.added_properties.clone(),
-			temporary_hacky_click_handler: e.temporary_hacky_click_handler.clone(),
 			original_element_type: Some(e.tag.clone()),
 		}
 	}
 
-	fn plain(tag: &'static str) -> Self {
-		HtmlElement {
-			tag,
-			position_children: "absolute",
-			display_children: "block",
-			style: HtmlStyle::default(),
-			attrs: HashMap::new(),
-			content: Vec::new(),
-			repeater: None,
-			condition: None,
-			added_properties: AddedProperties::None,
-			temporary_hacky_click_handler: None,
-			original_element_type: None,
-		}
-	}
+	// fn plain(tag: &'static str) -> Self {
+	// 	HtmlElement {
+	// 		tag,
+	// 		position_children: "absolute",
+	// 		display_children: "block",
+	// 		style: HtmlStyle::default(),
+	// 		events: HtmlEvents::default(),
+	// 		attrs: HashMap::new(),
+	// 		content: Vec::new(),
+	// 		repeater: None,
+	// 		condition: None,
+	// 		added_properties: AddedProperties::None,
+	// 		original_element_type: None,
+	// 	}
+	// }
 
 	fn render_js(&self, ctx: &mut WebRenderer) {
 		let tag = format!("\"{}\"", self.tag);
@@ -394,6 +387,7 @@ impl HtmlElement {
 				self.display_children).unwrap();
 
 			self.render_style_props(ctx);
+			self.render_event_props(ctx);
 
 			for (k, v) in self.attrs.iter() {
 				render_value_js(ctx, format!("{ind}e.setAttribute(\"{k}\", "), v, ");\n");
@@ -402,14 +396,22 @@ impl HtmlElement {
 				writeln!(ctx.file, "{ind}e.setAttribute(\"element_type\", \"{}\");", t).unwrap();
 			}
 
-			if let Some(handler) = self.temporary_hacky_click_handler.as_ref() {
-				render_value_js(ctx, format!("{ind}w.UI.__event(e, \"click\", d, "), handler, ");\n");
-			}
-
 			render_content_js(&self.content, ctx);
 		};
 
 		render_outer_js(ctx, &tag, condition, repeater, render);
+	}
+
+	fn render_event_props(&self, ctx: &mut WebRenderer) {
+		let ind = ctx.indent();
+		if self.events.click.is_set() {
+			render_value_js_coerce(
+				ctx,
+				format!("{ind}w.UI.__event(e, \"click\", d, "),
+				&self.events.click,
+				");\n",
+			Coerce::AsPrimitive);
+		}
 	}
 
 	fn render_style_props(&self, ctx: &mut WebRenderer) {
@@ -665,9 +667,18 @@ impl RenderJs for Value {
 					Value::Px(px) => { write!(ctx.file, "new w.UI.__types._Length(null, \"px\", {px})").unwrap() },
 					Value::Float(f) => { write!(ctx.file, "new w.UI.__types._Float(null, {f})").unwrap() },
 					Value::Int(n) => { write!(ctx.file, "new w.UI.__types._Int(null, {n})").unwrap() },
-					Value::String(s) => { write!(ctx.file, "new w.UI.__types._String(null, {s})").unwrap() },
+					Value::String(s) => { write!(ctx.file, "new w.UI.__types._String(null, \"{s}\")").unwrap() },
 					Value::Boolean(b) => { write!(ctx.file, "new w.UI.__types._Boolean(null, {b})").unwrap() },
 					Value::Color(r,g,b,a) => { write!(ctx.file, "new w.UI.__types._Brush(null, \"color\", {{r:{r},g:{g},b:{b},a:{a}}})").unwrap() },
+					Value::Object(map) => {
+						write!(ctx.file, "{{ ").unwrap();
+						for (k, v) in map {
+							write!(ctx.file, "{k}: ").unwrap();
+							v.render_js_coerce(ctx, Coerce::AsRaw);
+							write!(ctx.file, ", ").unwrap();
+						}
+						write!(ctx.file, "}}").unwrap();
+					},
 					Value::Binding(Expr::Path(..)) => { self.render_js(ctx) },
 					_ => unimplemented!("RenderJs Coercion AsRaw unimplemented for {:?}", self),
 				}
@@ -837,6 +848,7 @@ impl RenderWeb for Span {
 		span.style.white_space = Value::String(String::from("nowrap"));
 		span.position_children = "static";
 		span.display_children = "inline";
+		span.events.click = self.events_click.clone();
 		ctx.begin(span);
 		ctx.render_children(e.children);
 		ctx.end()

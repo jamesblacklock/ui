@@ -98,7 +98,6 @@ pub struct Element {
 	pub condition: Option<Value>,
 	pub repeater: Option<Repeater>,
 	pub properties: HashMap<String, Value>,
-	pub event_handlers: HashMap<String, Value>,
 	pub children: Vec<Content>,
 }
 
@@ -166,7 +165,7 @@ fn add_property(map: &mut HashMap<String, Value>, path: &[String], value: Value)
 }
 
 fn element(input: &str) -> IResult<&str, Element> {
-	let (input, (path, data, condition, repeater, (properties, event_handlers, children))) = tuple((
+	let (input, (path, data, condition, repeater, (properties, children))) = tuple((
 		terminated(path, skip_space),
 		opt(binding),
 		opt(condition),
@@ -175,7 +174,6 @@ fn element(input: &str) -> IResult<&str, Element> {
 			pair(skip_space, char('{')),
 			tuple((
 				many0(delimited(skip_space, property, skip_space)),
-				many0(delimited(skip_space, event_handler, skip_space)),
 				many0(delimited(skip_space, content, skip_space)),
 			)),
 			pair(skip_space, char('}')),
@@ -187,11 +185,6 @@ fn element(input: &str) -> IResult<&str, Element> {
 	for prop in properties.into_iter() {
 		add_property(&mut props_map, &prop.path, prop.value);
 	}
-
-	let event_handlers = event_handlers.into_iter().fold(HashMap::new(), |mut acc, p| {
-		acc.insert(p.name.to_owned(), p.value);
-		acc
-	});
 
 	let path = path.into_iter().map(|e| e.to_owned()).collect();
 
@@ -207,7 +200,6 @@ fn element(input: &str) -> IResult<&str, Element> {
 		condition,
 		repeater,
 		properties: props_map,
-		event_handlers,
 		children,
 	}))
 }
@@ -298,7 +290,6 @@ fn text_content(input: &str) -> IResult<&str, Element> {
 		condition: None,
 		repeater: None,
 		properties: hashmap!["content".to_owned() => result],
-		event_handlers: HashMap::new(),
 		children: Vec::new(),
 	}))
 }
@@ -306,12 +297,6 @@ fn text_content(input: &str) -> IResult<&str, Element> {
 #[derive(Debug)]
 struct Property {
 	path: Vec<String>,
-	value: Value,
-}
-
-#[derive(Debug)]
-struct EventHandler {
-	name: String,
 	value: Value,
 }
 
@@ -406,28 +391,7 @@ fn repeater(input: &str) -> IResult<&str, (Option<String>, String, Value)> {
 }
 
 fn property(input: &str) -> IResult<&str, Property> {
-	let (input, (path, value)) = property_or_partial_event_handler(input)?;
-	Ok((input, Property {
-		path,
-		value,
-	}))
-}
-
-fn event_handler(input: &str) -> IResult<&str, EventHandler> {
-	let (input, (name, value)) = preceded(
-		char('*'),
-		property_or_partial_event_handler,
-	)
-	(input)?;
-	assert!(name.len() == 1);
-	Ok((input, EventHandler {
-		name: name.into_iter().next().unwrap(),
-		value,
-	}))
-}
-
-fn property_or_partial_event_handler(input: &str) -> IResult<&str, (Vec<String>, Value)> {
-	terminated(
+	let (input, (path, value)) = terminated(
 		separated_pair(path, delimited(skip_space, char(':'), skip_space), value),
 		terminated(
 			skip_space,
@@ -437,7 +401,11 @@ fn property_or_partial_event_handler(input: &str) -> IResult<&str, (Vec<String>,
 			)),
 		)
 	)
-	(input)
+	(input)?;
+	Ok((input, Property {
+		path,
+		value,
+	}))
 }
 
 fn path(input: &str) -> IResult<&str, Vec<String>> {

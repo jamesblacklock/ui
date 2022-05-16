@@ -230,12 +230,12 @@ class _Iter {
 		this.itemType = itemType;
 	}
 	__default() {
-		return new _Iterator(this, 0);
+		return new _IterInstance(this, 0);
 	}
 }
 
 function _Array(type, arr, onCommit) {
-	let it = new _Iterator(type, arr.map(e => coerce(e, type.itemType, onCommit)));
+	let it = new _IterInstance(type, arr.map(e => coerce(e, type.itemType, onCommit)));
 	Object.defineProperty(it, '__changes', {writable: true, value: {}});
 	Object.defineProperty(it, '__dirty', {writable: true, value: false});
 	Object.defineProperty(it, '__onCommit', {writable: true, value: onCommit});
@@ -439,7 +439,7 @@ function _Array(type, arr, onCommit) {
 	});
 }
 
-class _Iterator {
+class _IterInstance {
 	__isIter = true;
 	constructor(type, collection) {
 		collection = collection ?? [];
@@ -470,6 +470,26 @@ class _Iterator {
 		return this.__collection;
 	}
 }
+
+class _Callback {
+	static __default() {
+		return new _Callback(() => console.log('callback triggered!'));
+	}
+	constructor(f) {
+		this.f = f;
+	}
+	jsValue() {
+		return this.f;
+	}
+	flatJsValue() {
+		return this.f;
+	}
+}
+
+// class _CallbackInstance {
+
+// }
+
 class _Object {
 	constructor(props) {
 		this.props = props;
@@ -532,7 +552,7 @@ function coerce(v, t, onCommit) {
 		if(v.constructor == Array) {
 			return _Array(t, v, onCommit);
 		} else {
-			return new _Iterator(t, v);
+			return new _IterInstance(t, v);
 		}
 	} else {
 		return new t(v);
@@ -693,9 +713,11 @@ w.UI = w.UI || {
 		_Length,
 		_Brush,
 		_Iter,
-		_Iterator,
+		_IterInstance,
 		_Alignment,
 		_Array,
+		_Callback,
+		// _CallbackInstance,
 		_Object,
 		_ObjectInstance,
 	},

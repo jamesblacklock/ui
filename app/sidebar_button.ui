@@ -1,0 +1,10 @@
+// events: {
+//     click: Callback;
+// }
+
+span {
+    color: #fff;
+    padding: 8px;
+    events.click: (events.click);
+    (text)
+}

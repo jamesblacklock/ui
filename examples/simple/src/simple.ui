@@ -4,6 +4,8 @@ pub x: Length;
 pub y: Length;
 pub strings: [String];
 
+state: Int;
+
 rect {
     x: 100px;
     y: 100px;

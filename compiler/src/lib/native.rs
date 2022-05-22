@@ -114,19 +114,28 @@ pub fn render<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 	let mut ctx = NativeRenderer::new(name, path);
 	let code = render_element(&component.root, &mut ctx);
 
-	let fields = component.props.iter().map(|(name, decl)| {
+	let mut pub_fields = Vec::new();
+	let mut pub_field_inits = Vec::new();
+	let mut priv_fields = Vec::new();
+	let mut priv_field_inits = Vec::new();
+	for (name, decl) in component.props.iter() {
 		let name = format_ident!("{}", name);
 		let prop_type = decl.prop_type.to_tokens();
-		quote!(pub #name: #prop_type)
-	});
+		if decl.is_pub {
+			pub_fields.push(quote!(pub #name: #prop_type));
+			pub_field_inits.push(quote!(#name: props.#name));
+		} else {
+			priv_fields.push(quote!(#name: #prop_type));
+			priv_field_inits.push(quote!(#name: Default::default()));
+		}
+	}
 
 	let web_code = if web {
 		let target_struct_name = format_ident!("{}Target", struct_name);
 		let interface_struct_name = format_ident!("{}Interface", struct_name);
-		let props = component.props.iter().map(|(name, _decl)| {
+		let props = component.props.iter().filter(|(_, decl)| decl.is_pub).map(|(name, _decl)| {
 			let name = format_ident!("{}", name);
 			let setter_name = format_ident!("set_{}", name);
-			// let prop_type = decl.prop_type.to_tokens();
 			quote!(
 				#[wasm_bindgen::prelude::wasm_bindgen(getter)]
 				pub fn #name(&self) -> wasm_bindgen::JsValue {
@@ -135,6 +144,7 @@ pub fn render<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 				#[wasm_bindgen::prelude::wasm_bindgen(setter)]
 				pub fn #setter_name(&mut self, #name: wasm_bindgen::JsValue) {
 					self.object.component.#name = ui::web::ConvertJsValue::from_js_value(#name);
+					self.trigger_update();
 				}
 			)
 		});
@@ -163,11 +173,27 @@ pub fn render<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 			#[repr(C)]
 			pub struct #interface_struct_name {
 				object: Box<#target_struct_name>,
+				animation_frame: i32,
 			}
+			use wasm_bindgen::JsCast;
 			#[wasm_bindgen::prelude::wasm_bindgen]
 			impl #interface_struct_name {
 				pub fn render(&mut self) {
 					self.object.render();
+				}
+				fn trigger_update(&mut self) {
+					let window = web_sys::window().unwrap();
+					window.cancel_animation_frame(self.animation_frame).unwrap();
+					let ptr: *mut SimpleTarget = self.object.as_mut();
+					self.animation_frame = window
+						.request_animation_frame(
+							wasm_bindgen::prelude::Closure::once_into_js(move || unsafe {
+								(*ptr).render()
+							})
+							.as_ref()
+							.unchecked_ref(),
+						)
+						.unwrap();
 				}
 				#(#props)*
 			}
@@ -178,7 +204,7 @@ pub fn render<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 						self
 					);
 					target.render();
-					#interface_struct_name { object: Box::new(target) }
+					#interface_struct_name { object: Box::new(target), animation_frame: 0 }
 				}
 			}
 		)
@@ -191,7 +217,19 @@ pub fn render<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 		mod #mod_name {
 			use super::ui;
 			pub struct #struct_name {
-				#(#fields),*
+				#(#pub_fields,)*
+				#(#priv_fields),*
+			}
+			pub struct Props {
+				#(#pub_fields),*
+			}
+			impl #struct_name {
+				pub fn new(props: Props) -> Self {
+					Self {
+						#(#pub_field_inits,)*
+						#(#priv_field_inits),*
+					}
+				}
 			}
 			impl ui::Component for #struct_name {
 				fn update(&mut self, parent: &mut ui::Element) {

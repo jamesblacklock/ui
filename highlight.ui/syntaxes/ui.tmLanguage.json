@@ -60,7 +60,7 @@
 		},
 		"types": {
 			"name": "entity.name.type.ui",
-			"match": "\\bString|Boolean|Int|Float|Callback|Brush|Color|Length\\b"
+			"match": "\\b(String|Boolean|Int|Float|Callback|Brush|Color|Length)\\b"
 		},
 		"elements": {
 			"name": "entity.name.type.ui",

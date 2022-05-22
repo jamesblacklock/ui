@@ -1,0 +1,32 @@
+pub show: Boolean;
+pub text: String;
+pub x: Length;
+pub y: Length;
+
+rect {
+    x: 100px;
+    y: 100px;
+    width: 300px;
+    height: 400px;
+    background: #e44;
+
+    span {
+        (text)
+    }
+
+    rect {
+        background: #00f;
+        x: (x);
+        y: (y);
+        width: 20px;
+        height: 40px;
+    }
+
+    rect if (show) {
+        background: #609;
+        x: 240px;
+        y: 90px;
+        width: 20px;
+        height: 40px;
+    }
+}

@@ -1,0 +1,62 @@
+import "./budget_detail";
+import "./budget_header";
+
+column.stretch {
+    budget_header {}
+
+    row.stretch {
+        // budget
+        column.stretch {
+            row.stretch {
+                stretch: 0;
+                padding: 10px;
+                spacing: 16px;
+                span {stretch: 0; "Category Group"}
+                span {stretch: 0; "Undo"}
+                span {stretch: 0; "Redo"}
+            }
+            row.stretch {
+                stretch: 0;
+                padding: 10px;
+                spacing: 40px;
+                span {stretch: 4; "CATEGORY"}
+                span {stretch: 1; "ASSIGNED"}
+                span {stretch: 1; "ACTIVITY"}
+                span {stretch: 1; "AVAILABLE"}
+            }
+            scroll {
+                column.grow {
+                    width: (parent.width);
+                    row.stretch {
+                        padding: 10px;
+                        spacing: 40px;
+                        span {stretch: 4; "Rent"}
+                        span {stretch: 1; "$516.00"}
+                        span {stretch: 1; "$0.00"}
+                        span {stretch: 1; "$516.00"}
+                    }
+                }
+            }
+        }
+
+        //details
+        rect {
+            background: #f9f8fb;
+            width: 378px;
+            column.grow {
+                width: (parent.width);
+                padding: 16px;
+                spacing: 16px;
+                budget_detail {
+                    name: "Auto-Assign";
+                }
+                budget_detail {
+                    name: "Available in May";
+                }
+                budget_detail {
+                    name: "Assigned in the Future";
+                }
+            }
+        }
+    }
+}

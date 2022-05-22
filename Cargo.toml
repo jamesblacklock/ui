@@ -1,13 +1,10 @@
-[package]
-name = "ui"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+members = [
+    "api",
+    "compiler",
+    "pkg_web",
+    "examples/simple",
+    # "examples/simple_web",
+]
 
-[dependencies]
-nom = "^7.1.1"
-maplit = "^1.0.2"
-notify = "^4.0.17"
-
-[[bin]]
-name = "ui"
-path = "main.rs"
+resolver="2"

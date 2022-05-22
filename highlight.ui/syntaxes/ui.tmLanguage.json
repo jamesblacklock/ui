@@ -11,7 +11,8 @@
 		{ "include": "#children" },
 		{ "include": "#lengths" },
 		{ "include": "#booleans" },
-		{ "include": "#brushes" }
+		{ "include": "#brushes" },
+		{ "include": "#types" }
 	],
 	"repository": {
 		"blockcomments": {
@@ -40,7 +41,7 @@
 				},
 				{
 					"name": "keyword.other.ui",
-					"match": "\\b(import|as)\\b"
+					"match": "\\b(import|as|pub)\\b"
 				}
 			]
 		},
@@ -56,6 +57,10 @@
 		"children": {
 			"name": "entity.name.function.ui",
 			"match": "@[a-zA-Z_][a-zA-Z0-9_]*\\b"
+		},
+		"types": {
+			"name": "entity.name.type.ui",
+			"match": "\\bString|Boolean|Int|Float|Callback|Brush|Color|Length\\b"
 		},
 		"elements": {
 			"name": "entity.name.type.ui",

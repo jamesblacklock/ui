@@ -1,0 +1,21 @@
+[package]
+name = "ui_compiler"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+nom = "^7.1.1"
+maplit = "^1.0.2"
+notify = "^4.0.17"
+quote = "1.0.18"
+proc-macro2 = "1.0.39"
+convert_case = "0.5.0"
+
+[[bin]]
+name = "ui"
+path = "src/main.rs"
+
+[lib]
+name = "ui_compiler"
+path = "src/lib/mod.rs"
+crate-type = ["rlib"]

@@ -1,0 +1,1 @@
+cargo run --features=native,web simple_native

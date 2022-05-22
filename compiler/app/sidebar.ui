@@ -7,12 +7,16 @@ rect {
 	column.stretch {
 		width: (parent.width);
 		height: (parent.height);
-		sidebar_button { events.click: (budget_clicked); text: "Budget" }
-		sidebar_button { events.click: (reports_clicked); text: "Reports" }
-		sidebar_button { events.click: (all_accounts_clicked); text: "All Accounts" }
+		column.grow {
+			spacing: 8px;
+			padding: 8px;
+			stretch: 0;
+			sidebar_button { events.click: (budget_clicked); text: "Budget" }
+			sidebar_button { events.click: (reports_clicked); text: "Reports" }
+			sidebar_button { events.click: (all_accounts_clicked); text: "All Accounts" }
+		}
 		scroll {
 			width: (parent.width);
-			height: (parent.height);
 			column.grow {
 				width: (parent.width);
 				padding: 8px;

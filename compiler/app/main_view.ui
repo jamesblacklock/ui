@@ -1,0 +1,12 @@
+import "./budget_view";
+import "./tx_view";
+import "./reports_view";
+
+// view: .budget|.all_accounts|.reports
+
+column.stretch {
+    budget_view  if (show_budget) {}
+    tx_view      if (show_txs) {}
+    reports_view if (show_reports) {}
+}
+

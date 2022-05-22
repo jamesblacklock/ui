@@ -1,0 +1,20 @@
+// events: {
+//     click: Callback;
+// }
+
+// row.stretch {
+//     // define colors: [#0000, #25384f, #3574a7];
+
+//     events.mouseenter: (events.mouseenter);
+//     events.mouseleave: (events.mouseleave);
+//     events.click: (events.click);
+
+//     background: (color);
+
+    span {
+        events.click: (events.click);
+        color: #fff;
+        padding: 8px;
+        (text)
+    }
+// }

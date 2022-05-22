@@ -74,7 +74,7 @@ const hexDoubleDigit = (d) => { let n = parseInt(d, 16); return n << 4 | n }
 
 class _Brush {
 	static __default() {
-		return new _Brush();
+		return new _Brush(null, 'color', { r: 0, g: 0, b: 0, a: 0 });
 	}
 	constructor(arg, brushType, value) {
 		if(arg != null) {
@@ -104,8 +104,14 @@ class _Brush {
 					let b = parseInt(arg.slice(5,7), 16);
 					let a = parseInt(arg.slice(7,9), 16) / 255;
 					arg = { brushType: 'color', value: { r, g, b, a } };
-				} else {//if(arg.match(/^rgb\(\d\)$/)) {
-					arg = transparent;
+				} else {
+					let match = arg.match(/^rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+|\d*\.\d+)\s*\)$/);
+					if(match != null) {
+						let [ignored, r, g, b, a] = match;
+						arg = { brushType: 'color', value: { r: Number(r), g: Number(g), b: Number(b), a: Number(a) } };
+					} else {
+						arg = transparent;
+					}
 				}
 			} else if(arg.brushType == null) {
 				arg = { brushType: 'color', value: arg };
@@ -473,7 +479,7 @@ class _IterInstance {
 
 class _Callback {
 	static __default() {
-		return new _Callback(() => console.log('callback triggered!'));
+		return new _Callback(null);
 	}
 	constructor(f) {
 		this.f = f;
@@ -520,6 +526,7 @@ function typeToFlatJsValue(t) {
 		case _Length:           return 'Length';
 		case _Brush:            return 'Brush';
 		case _Alignment:        return 'Alignment';
+		case _Callback:         return 'Callback';
 		// case _Array:            types[key] = 'e'; break;
 		default:                throw new Error('unimplemented');
 	}
@@ -805,14 +812,21 @@ w.UI = w.UI || {
 			return;
 		}
 		if(e.__events[n]) {
-			e.removeEventListener("click", e.__events[n].bound);
+			e.removeEventListener(n, e.__events[n].bound);
 		}
 		if(c) {
 			e.__events[n] = { unbound: c, bound: c.bind(d) };
-			e.addEventListener("click", e.__events[n].bound);
+			e.addEventListener(n, e.__events[n].bound);
 		}
 	},
 	__fixLayout(e, growLayout) {
+		if(e.parentElement.__spaceChildren && e.nextSibling != null) {
+			if(e.parentElement.style.flexDirection == "row") {
+				e.style.marginRight = e.parentElement.__spaceChildren;
+			} else {
+				e.style.marginBottom = e.parentElement.__spaceChildren;
+			}
+		}
 		if(e.style.alignSelf == "stretch") {
 			if(e.parentElement.style.flexDirection == "row") {
 				e.style.height = "";
@@ -820,13 +834,13 @@ w.UI = w.UI || {
 				e.style.width = "";
 			}
 		}
-		if(growLayout) {
-			if(e.parentElement.style.flexDirection == "row") {
-				e.style.width = "fit-content";
-			} else {
-				e.style.height = "fit-content";
-			}
-		}
+		// if(growLayout) {
+		// 	if(e.parentElement.style.flexDirection == "row") {
+		// 		e.style.width = "fit-content";
+		// 	} else {
+		// 		e.style.height = "fit-content";
+		// 	}
+		// }
 		e.style.minWidth = e.style.maxWidth = (e.style.width == "0px" ? "" : e.style.width);
 		e.style.minHeight = e.style.maxHeight = (e.style.height == "0px" ? "" : e.style.height);
 		e.style.flexBasis = "auto";

@@ -1,0 +1,11 @@
+<head><title>hello world</title></head>
+<div id="target"></div>
+<script src="./pkg/simple_web.js"></script>
+<script src="./pkg/simple_web_bg.js"></script>
+<script>
+    async function main() {
+        await wasm_bindgen(simple);
+        window.c = wasm_bindgen.simple(document.getElementById("target"));
+    }
+    main();
+</script>

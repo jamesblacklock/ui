@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::cell::Cell;
 use std::path::PathBuf;
+use maplit::hashmap;
 
 use nom::{
 	IResult,
@@ -58,26 +59,27 @@ use super::{
 	Import,
 	Ctx,
 	Type,
+	PropDecl,
 };
 
 type ParseError<'a> = nom::Err<nom::error::Error<&'a str>>;
 
 pub fn parse(input: &str) -> Result<Component, ParseError> {
-	let (imports, prop_decls, element) = tuple((
+	let (_, (imports, props, root)) = tuple((
 		many0(delimited(skip_space, import, skip_space)),
-		many0(delimited(skip_space, prop_decl, skip_space)),
+		delimited(skip_space, props, skip_space),
 		terminated(delimited(skip_space, element, skip_space), eof),
 	))
-	(input)
-	.map(|(_, result)| result)?;
+	(input)?;
 
-	if element.condition.is_some() || element.repeater.is_some() {
+	if root.condition.is_some() || root.repeater.is_some() {
 		fail::<_, &str, _>(input)?;
 	}
 
 	Ok(Component {
 		name: String::new(),
-		parse_tree: element,
+		props,
+		root,
 		import_decls: imports,
 		imports_map: HashMap::new(),
 		status: Cell::new(CompileStatus::Ready),
@@ -101,13 +103,6 @@ pub struct Element {
 	pub children: Vec<Content>,
 }
 
-#[derive(Debug)]
-pub struct PropDecl {
-	pub name: String,
-	pub prop_type: Type,
-	pub default: Option<Value>,
-}
-
 #[derive(Debug, Clone, Copy)]
 pub enum CompileStatus {
 	Ready,
@@ -118,7 +113,8 @@ pub enum CompileStatus {
 #[derive(Debug)]
 pub struct Component {
 	pub name: String,
-	pub parse_tree: Element,
+	pub root: Element,
+	pub props: HashMap<String, PropDecl>,
 	pub import_decls: Vec<Import>,
 	pub imports_map: HashMap<String, std::path::PathBuf>,
 	pub status: Cell<CompileStatus>,
@@ -148,6 +144,13 @@ fn import(input: &str) -> IResult<&str, Import> {
 	(input)
 }
 
+fn collect_properties(props: Vec<Property>) -> HashMap<String, Value> {
+	let mut props_map = HashMap::new();
+	for prop in props.into_iter() {
+		add_property(&mut props_map, &prop.path, prop.value);
+	}
+	props_map
+}
 fn add_property(map: &mut HashMap<String, Value>, path: &[String], value: Value) {
 	if path.len() == 1 {
 		if map.contains_key(&path[0]) {
@@ -181,10 +184,7 @@ fn element(input: &str) -> IResult<&str, Element> {
 	))
 	(input)?;
 	
-	let mut props_map = HashMap::new();
-	for prop in properties.into_iter() {
-		add_property(&mut props_map, &prop.path, prop.value);
-	}
+	let properties = collect_properties(properties);
 
 	let path = path.into_iter().map(|e| e.to_owned()).collect();
 
@@ -199,19 +199,38 @@ fn element(input: &str) -> IResult<&str, Element> {
 		data,
 		condition,
 		repeater,
-		properties: props_map,
+		properties,
 		children,
 	}))
 }
 
+fn props(input: &str) -> IResult<&str, HashMap<String, PropDecl>> {
+	let (input, props) = many0(delimited(skip_space, prop_decl, skip_space))
+	(input)?;
+	let props = props.into_iter().fold(HashMap::new(), |mut map, e| {
+		if map.contains_key(&e.name) {
+			eprintln!("tried to decalre property `{}` more than once", e.name);
+		} else {
+			map.insert(e.name.clone(), e);
+		}
+		map
+	});
+
+	Ok((input, props))
+}
+
 fn prop_decl(input: &str) -> IResult<&str, PropDecl> {
-	let (input, (name, (prop_type, default))) = separated_pair(
-		name,
+	let (input, ((is_pub, name), (prop_type, default))) = separated_pair(
+		pair(
+			map(opt(terminated(tag("pub"), skip_space)), |e| e.is_some()),
+			name,
+		),
 		delimited(skip_space, char(':'), skip_space),
 		prop_type,
 	)
 	(input)?;
 	Ok((input, PropDecl {
+		is_pub,
 		name,
 		prop_type,
 		default,
@@ -227,11 +246,12 @@ fn prop_type(input: &str) -> IResult<&str, (Type, Option<Value>)> {
 				map(tag("String"),    |_| Type::String),
 				map(tag("Boolean"),   |_| Type::Boolean),
 				map(tag("Alignment"), |_| Type::Alignment),
+				map(tag("Callback"),  |_| Type::Callback),
 				map(
 					delimited(
 						pair(char('['), skip_space),
 						prop_type,
-						pair(skip_space, char(']'))
+						pair(skip_space, char(']')),
 					),
 					|t| Type::Iter(Box::new(t.0)),
 				),
@@ -247,7 +267,7 @@ fn prop_type(input: &str) -> IResult<&str, (Type, Option<Value>)> {
 					skip_space,
 					alt((
 						char(';'),
-						peek(char('}')),
+						peek(one_of("}]")),
 					))
 				),
 			),
@@ -391,16 +411,19 @@ fn repeater(input: &str) -> IResult<&str, (Option<String>, String, Value)> {
 }
 
 fn property(input: &str) -> IResult<&str, Property> {
-	let (input, (path, value)) = terminated(
-		separated_pair(path, delimited(skip_space, char(':'), skip_space), value),
+	let (input, (path, value)) = alt((
 		terminated(
-			skip_space,
-			alt((
-				char(';'),
-				peek(char('}')),
-			)),
-		)
-	)
+			separated_pair(path, delimited(skip_space, char(':'), skip_space), value),
+			pair(
+				skip_space,
+				alt((
+					char(';'),
+					peek(char('}')),
+				)),
+			)
+		),
+		separated_pair(path, delimited(skip_space, char(':'), skip_space), object),
+	))
 	(input)?;
 	Ok((input, Property {
 		path,
@@ -422,21 +445,33 @@ fn path(input: &str) -> IResult<&str, Vec<String>> {
 
 fn name(input: &str) -> IResult<&str, String> {
 	map(
-		preceded(
-			not(
-				terminated(
-					alt((tag("import"), tag("as"), tag("if"), tag("for"), tag("in"))),
-					not(alphanumeric1)
-				),
-			),
+		// preceded(
+		// 	not(
+		// 		terminated(
+		// 			alt((tag("import"), tag("as"), tag("if"), tag("for"), tag("in"))),
+		// 			not(alphanumeric1)
+		// 		),
+		// 	),
 			recognize(
 				pair(
 					satisfy(|c| is_alphabetic(c as u8) || c == '_'),
 					many0(satisfy(|c| is_alphanumeric(c as u8) || c == '_'))
 				),
 			),
-		),
+		// ),
 		|e: &str| e.to_owned()
+	)
+	(input)
+}
+
+fn object(input: &str) -> IResult<&str, Value> {
+	map(
+		delimited(
+			pair(char('{'), skip_space),
+			many1(delimited(skip_space, property, skip_space)),
+			pair(skip_space, char('}')),
+		),
+		|props| Value::Object(collect_properties(props)),
 	)
 	(input)
 }
@@ -450,6 +485,7 @@ fn value(input: &str) -> IResult<&str, Value> {
 		color,
 		boolean,
 		enum_value,
+		object,
 		binding,
 	))
 	(input)

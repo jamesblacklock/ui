@@ -1,8 +1,10 @@
 use std::fmt::Debug;
 use std::collections::HashMap;
+use maplit::hashmap;
 
 use super::{
 	web::{RenderWeb, WebRenderer, HtmlContent},
+	native::{RenderNative},
 	parser::Element as ParserElement,
 	parser::Content as ParserContent,
 	parser::Component as ParserComponent,
@@ -12,9 +14,31 @@ use super::{
 	Expr,
 	Type,
 	Ctx,
+	PropDecl,
 };
 
 pub use super::parser::Children;
+
+
+#[derive(Debug, Default, Clone)]
+pub struct EventsSpec {
+	pub pointer_click: bool,
+	pub pointer_press: bool,
+	pub pointer_release: bool,
+	pub pointer_move: bool,
+	pub pointer_in: bool,
+	pub pointer_out: bool,
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct Events {
+	pub pointer_click: Value,
+	pub pointer_press: Value,
+	pub pointer_release: Value,
+	pub pointer_move: Value,
+	pub pointer_in: Value,
+	pub pointer_out: Value,
+}
 
 #[derive(Debug, Clone)]
 pub enum AddedProperties {
@@ -34,23 +58,26 @@ impl AddedProperties {
 pub struct ConstructedElementImpl {
 	element_impl: Box<dyn ElementImpl>,
 	children: Vec<Content>,
+	events_spec: EventsSpec,
 }
 
 impl ConstructedElementImpl {
 	fn new(
 		element_impl: Box<dyn ElementImpl>,
-		children: Vec<Content>
+		children: Vec<Content>,
+		events_spec: EventsSpec,
 	) -> Self {
 		ConstructedElementImpl {
 			element_impl,
 			children,
+			events_spec,
 		}
 	}
 }
 
-pub type Constructor = fn(&Module, &ParserElement) -> ConstructedElementImpl;
+pub type Constructor = fn(&mut Module, &ParserElement) -> ConstructedElementImpl;
 
-pub trait ElementImpl: Debug + RenderWeb {
+pub trait ElementImpl: Debug + RenderWeb + RenderNative {
 	fn set_property(&mut self, _k: &String, _v: &Value) -> SetPropertyResult { SetPropertyResult::Ignore }
 	fn property_types(&self) -> HashMap<String, Type> { HashMap::new() }
 }
@@ -77,15 +104,16 @@ pub struct Element {
 	pub tag: String,
 	pub condition: Option<Value>,
 	pub repeater: Option<Repeater>,
-	pub data_types: HashMap<String, Type>,
 	pub children: Vec<Content>,
 	pub element_impl: Box<dyn ElementImpl>,
 	pub added_properties: AddedProperties,
+	pub events: Events,
 }
 
 #[derive(Debug)]
 pub struct Component {
-	pub element: Element,
+	pub root: Element,
+	pub props: HashMap<String, PropDecl>,
 	pub name: String,
 }
 
@@ -95,6 +123,7 @@ pub struct ElementData<'a> {
 	pub repeater: &'a Option<Repeater>,
 	pub children: &'a Vec<Content>,
 	pub added_properties: &'a AddedProperties,
+	pub events: &'a Events,
 }
 
 impl Default for Element {
@@ -103,28 +132,13 @@ impl Default for Element {
 			tag: String::from("<empty>"),
 			condition: None,
 			repeater: None,
-			data_types: HashMap::new(),
+			// data_types: HashMap::new(),
 			children: Vec::new(),
 			element_impl: Box::new(Empty),
 			added_properties: AddedProperties::None,
+			events: Default::default(),
 		}
 	}
-}
-
-
-
-fn update_data_type(map: &mut HashMap<String, Type>, path: &[String], t: &Type) {
-	if path.len() > 1 {
-		if let Some(Type::Object(next_map)) = map.get_mut(&path[0]) {
-			update_data_type(next_map, &path[1..], t);
-		} else {
-			let mut next_map = HashMap::new();
-			update_data_type(&mut next_map, &path[1..], t);
-			map.insert(path[0].clone(), Type::Object(next_map));
-		}
-		return;
-	}
-	map.insert(path[0].clone(), t.clone());
 }
 
 pub enum SetPropertyResult {
@@ -133,109 +147,61 @@ pub enum SetPropertyResult {
 	TypeError,
 }
 
-fn discover_bindings(
-	element_impl: &Box<dyn ElementImpl>,
-	children: &[Content],
-	repeater: &Option<Repeater>,
-	condition: &Option<Value>,
-	data: &Option<Value>,
-	properties: &HashMap<String, Value>
-) -> HashMap<String, Type> {
-	let property_types = element_impl.property_types();
-	let mut data_types = discover_bindings_from_properties(properties, &property_types);
-
-	fn discover_bindings_from_properties(
-		properties: &HashMap<String, Value>,
-		property_types: &HashMap<String, Type>
-	) -> HashMap<String, Type> {
-		let mut data_types = HashMap::new();
-		for (k, v) in properties {
-			if let Some(expected_type) = property_types.get(k.as_str()) {
-				match v {
-					Value::Object(map) => {
-						if let Type::Object(property_types0) = expected_type {
-							let t = discover_bindings_from_properties(map, property_types0);
-							for (k, v) in t {
-								update_data_type(&mut data_types, &[k.clone()], &v);
-							}
-						}
-					},
-					Value::Binding(Expr::Path(path, ctx)) => {
-						if *ctx != Ctx::Component {
-							continue;
-						}
-						update_data_type(&mut data_types, path, expected_type);
-					},
-					_ => {},
-				}
-			}
-		}
-		data_types
-	}
-
-	for child in children {
-		let child = match child { Content::Element(e) => e, _ => continue };
-		for (k, child_t) in &child.data_types {
-			if let Some(this_t) = data_types.get(k) {
-				if this_t != child_t {
-					match try_type_merge(this_t, child_t) {
-						Ok(t) => {
-							data_types.insert(k.clone(), t);
-						}
-						Err(_) => {
-							eprintln!("type error: {:?} does not match {:?}", this_t, child_t);
-						}
-					}
-				}
-			} else {
-				data_types.insert(k.clone(), child_t.clone());
-			}
-		}
-	}
-
-	if let Some(repeater) = repeater.as_ref() {
-		repeater.index.as_ref().map(|e| data_types.remove(e));
-		if let Some(item_type) = data_types.remove(&repeater.item) {
-			match &repeater.collection {
-				Value::Binding(Expr::Path(path, ..)) => {
-					update_data_type(&mut data_types, path, &Type::Iter(Box::new(item_type)));
-				},
-				_ => {
-					unimplemented!();
-				},
-			}
-		}
-	}
-
-	if let Some(condition) = condition.as_ref() {
-		match condition {
-			Value::Binding(Expr::Path(path, ..)) => {
-				update_data_type(&mut data_types, path, &Type::Boolean);
+fn set_pointer_events_properties(
+	properties: &HashMap<String, Value>,
+	events_spec: &EventsSpec,
+	events: &mut Events
+) {
+	for (k, v) in properties {
+		match k.as_str() {
+			"click"   if events_spec.pointer_click => {
+				events.pointer_click = v.clone();
+			},
+			"press"   if events_spec.pointer_press => {
+				events.pointer_press = v.clone();
+			},
+			"release" if events_spec.pointer_release => {
+				events.pointer_release = v.clone();
+			},
+			"move"    if events_spec.pointer_move => {
+				events.pointer_move = v.clone();
+			},
+			"in"      if events_spec.pointer_in => {
+				events.pointer_in = v.clone();
+			},
+			"out"     if events_spec.pointer_out => {
+				events.pointer_out = v.clone();
 			},
 			_ => {
-				unimplemented!();
-			},
+				eprintln!("tried to set nonexistent property `{k}`");
+			}
 		}
 	}
+}
 
-	if let Some(data) = data {
-		match data {
-			Value::Binding(Expr::Path(path, ..)) => {
-				let mut new_data_types = HashMap::new();
-				update_data_type(&mut new_data_types, &path, &Type::Object(data_types));
-				data_types = new_data_types;
+fn set_events_properties(
+	properties: &HashMap<String, Value>,
+	events_spec: &EventsSpec,
+	events: &mut Events
+) {
+	for (k, v) in properties {
+		match k.as_str() {
+			"pointer" => {
+				if let Value::Object(map) = v {
+					set_pointer_events_properties(map, events_spec, events);
+				}
 			},
 			_ => {
-				unimplemented!();
-			},
+				eprintln!("tried to set nonexistent property `{k}`");
+			}
 		}
 	}
-
-	data_types
 }
 
 fn set_properties(
 	properties: &HashMap<String, Value>,
+	events_spec: &EventsSpec,
+	events: &mut Events,
 	element_impl: &mut Box<dyn ElementImpl>,
 	added_properties: &mut AddedProperties,
 ) {
@@ -243,7 +209,13 @@ fn set_properties(
 		if k == "self" {
 			match v {
 				Value::Object(map) => {
-					set_properties(map, element_impl, &mut AddedProperties::None);
+					set_properties(
+						map,
+						events_spec,
+						events,
+						element_impl,
+						&mut AddedProperties::None
+					);
 					continue;
 				},
 				_ => {
@@ -261,84 +233,231 @@ fn set_properties(
 			},
 		}
 		match element_impl.set_property(k, v) {
-			SetPropertyResult::Set       => {},
-			SetPropertyResult::Ignore    => {
-				eprintln!("tried to set nonexistent property `{k}`");
-			},
+			SetPropertyResult::Set       => { continue; },
+			SetPropertyResult::Ignore    => {},
 			SetPropertyResult::TypeError => {
 				eprintln!("type error when setting property `{k}`");
+				continue;
+			},
+		}
+		if let ("events", Value::Object(map)) = (k.as_str(), v) {
+			set_events_properties(map, &events_spec, events);
+			continue;
+		}
+		eprintln!("tried to set nonexistent property `{k}`");
+	}
+}
+
+fn can_coerce(from: &Type, to: &Type) -> bool {
+	if *to == Type::Any || *from == *to {
+		return true;
+	}
+
+	let (from, to) = match (from, to) {
+		(_, Type::String) => { return true },
+		(Type::Iter(from), Type::Iter(to)) => { return can_coerce(from, to) },
+		(Type::Object(from), Type::Object(to)) => (from, to),
+		_ => { return false }
+	};
+
+	for (k, to) in to {
+		if let Some(from) = from.get(k) {
+			if !can_coerce(from, to) {
+				return false;
+			}
+		} else {
+			return false
+		}
+	}
+
+	true
+}
+
+fn check_binding(
+	scope: &mut Module,
+	expected_type: Option<&Type>,
+	path: &[String],
+) -> Option<Type> {
+	let mut binding_type = None;
+	for map in scope.stack.iter().rev() {
+		if let Some(t) = map.get(&path[0]) {
+			binding_type = Some(t);
+			break;
+		}
+	}
+	if binding_type.is_none() {
+		binding_type = scope.props.get(&path[0]).map(|e| &e.prop_type);
+	}
+	for segment in path.iter().skip(1) {
+		if let Some(Type::Object(map)) = binding_type {
+			binding_type = map.get(segment);
+		} else {
+			binding_type = None;
+			break;
+		}
+	}
+	match (binding_type, expected_type) {
+		(Some(binding_type), Some(expected_type)) => {
+			if !can_coerce(binding_type, expected_type) {
+				eprintln!("expected type {:?}, found {:?}", expected_type, binding_type);
+			}
+		},
+		(None, _) => {
+			eprintln!("binding to undeclared property: {}", path.join("."));
+		},
+		_ => {},
+	}
+	binding_type.map(|t| t.clone())
+}
+
+fn check_and_push_repeater_bindings(
+	scope: &mut Module,
+	repeater: &Option<Repeater>,
+) {
+	let map = if let Some(repeater) = repeater.as_ref() {
+		match &repeater.collection {
+			Value::Binding(Expr::Path(path, ..)) => {
+				let t = check_binding(scope, Some(&Type::Iter(Box::new(Type::Any))), &path);
+				let item_type = if let Some(Type::Iter(t)) = t {
+					*t.clone()
+				} else {
+					Type::Any
+				};
+				let mut map = hashmap![repeater.item.clone() => item_type];
+				if let Some(index) = &repeater.index {
+					map.insert(index.clone(), Type::Int);
+				}
+				map
+			},
+			_ => {
+				unimplemented!();
+			},
+		}
+	} else {
+		HashMap::new()
+	};
+
+	scope.stack.push(map);
+}
+
+fn check_bindings(
+	scope: &mut Module,
+	expected_prop_types: &HashMap<String, Type>,
+	received_props: &HashMap<String, Value>,
+	events: &Events,
+	condition: &Option<Value>,
+) {
+	fn check_prop_bindings(
+		scope: &mut Module,
+		received_props: &HashMap<String, Value>,
+		expected_types: Option<&HashMap<String, Type>>
+	) {
+		for (k, v) in received_props {
+			let expected_type = expected_types.and_then(|e| e.get(k));
+			match v {
+				Value::Object(map) => {
+					let expected_types = match expected_type {
+						Some(Type::Object(map)) => Some(map),
+						_ => None,
+					};
+					check_prop_bindings(scope, map, expected_types);
+				},
+				Value::Binding(Expr::Path(path, Ctx::Component)) => {
+					check_binding(scope, expected_type, path);
+				},
+				_ => {},
+			}
+		}
+	}
+	check_prop_bindings(scope, received_props, Some(expected_prop_types));
+
+	macro_rules! check_event_binding {
+		($id:ident) => {
+			match &events.$id {
+				Value::Binding(Expr::Path(path, Ctx::Component)) => {
+					check_binding(scope, Some(&Type::Callback), &path);
+				},
+				Value::Unset => {},
+				_ => {
+					unimplemented!();
+				},
+			}
+		};
+	}
+	check_event_binding!(pointer_click);
+	check_event_binding!(pointer_press);
+	check_event_binding!(pointer_release);
+	check_event_binding!(pointer_move);
+	check_event_binding!(pointer_in);
+	check_event_binding!(pointer_out);
+
+	if let Some(condition) = condition.as_ref() {
+		match condition {
+			Value::Binding(Expr::Path(path, ..)) => {
+				check_binding(scope, Some(&Type::Boolean), &path);
+			},
+			_ => {
+				unimplemented!();
 			},
 		}
 	}
 }
 
-fn try_type_merge(t1: &Type, t2: &Type) -> Result<Type, ()> {
-	if *t1 == *t2 {
-		return Ok(t1.clone());
-	}
-
-	let (t1, t2) = match (t1, t2) {
-		(Type::String, t) => { return Ok(t.clone()) },
-		(t, Type::String) => { return Ok(t.clone()) },
-		(Type::Object(t1), Type::Object(t2)) => (t1, t2),
-		_ => { return Err(()) }
-	};
-
-	let mut new_t = t1.clone();
-	for (k, v2) in t2 {
-		let t = if let Some(v1) = new_t.get(k) {
-			try_type_merge(v1, v2)?
-		} else {
-			v2.clone()
-		};
-		new_t.insert(k.clone(), t);
-	}
-
-	Ok(Type::Object(new_t))
-}
-
 impl Element {
 	fn construct_element(
-		scope: &Module,
+		scope: &mut Module,
 		parse_tree: &ParserElement,
 		mut added_properties: AddedProperties,
 	) -> Result<Self, String> {
-		let ConstructedElementImpl {
-			mut element_impl,
-			children,
-		} = scope.construct(&parse_tree)?;
-
-		// println!("{:#?}", parse_tree.properties);
-		set_properties(
-			&parse_tree.properties,
-			&mut element_impl,
-			&mut added_properties);
-
 		let repeater = parse_tree.repeater.as_ref().map(|e| Repeater {
 			index: e.index.as_ref().map(|e| e.into()),
 			item: e.item.clone(),
 			collection: e.collection.clone(),
 		});
-		let condition = parse_tree.condition.clone();
-		let data = parse_tree.data.clone();
 
-		let data_types = discover_bindings(
-			&element_impl,
-			&children,
-			&repeater,
-			&condition,
-			&data,
+		check_and_push_repeater_bindings(scope, &repeater);
+
+		let ConstructedElementImpl {
+			mut element_impl,
+			children,
+			events_spec,
+		} = scope.construct(&parse_tree)?;
+
+		// println!("{:#?}", parse_tree.properties);
+		let mut events = Events::default();
+		set_properties(
 			&parse_tree.properties,
+			&events_spec,
+			&mut events,
+			&mut element_impl,
+			&mut added_properties,
 		);
 
+		let condition = parse_tree.condition.clone();
+		// let data = parse_tree.data.clone();
+
+		check_bindings(
+			scope,
+			&element_impl.property_types(),
+			&parse_tree.properties,
+			&events,
+			&condition,
+		);
+
+		if repeater.is_some() {
+			scope.stack.pop();
+		}
+
+		// unimplemented!();
 		Ok(Element {
 			tag: parse_tree.path.join("."),
 			condition,
 			repeater,
-			data_types,
+			// data_types,
 			children,
 			element_impl,
 			added_properties,
+			events,
 		})
 	}
 
@@ -353,16 +472,17 @@ impl Element {
 			repeater: &self.repeater,
 			children: &self.children,
 			added_properties: &self.added_properties,
+			events: &self.events,
 		}
 	}
 }
 
-fn build_elements(scope: &Module, parse_tree: &[ParserContent]) -> Vec<Content> {
+fn build_elements(scope: &mut Module, parse_tree: &[ParserContent]) -> Vec<Content> {
 	build_elements_with_added_properties(scope, parse_tree, AddedProperties::None)
 }
 
 fn build_elements_with_added_properties(
-	scope: &Module,
+	scope: &mut Module,
 	parse_tree: &[ParserContent],
 	added_properties: AddedProperties
 ) -> Vec<Content> {
@@ -396,14 +516,14 @@ fn build_elements_with_added_properties(
 	elements
 }
 
-pub fn build_component(scope: &Module, parse_tree: &ParserComponent) -> Component {
-	match Element::construct_element(scope, &parse_tree.parse_tree, AddedProperties::None) {
-		Ok(element) => {
-			Component { element, name: parse_tree.name.clone() }
+pub fn build_component(scope: &mut Module, parse_tree: &ParserComponent) -> Component {
+	match Element::construct_element(scope, &parse_tree.root, AddedProperties::None) {
+		Ok(root) => {
+			Component { root, props: parse_tree.props.clone(), name: parse_tree.name.clone() }
 		},
 		Err(message) => {
 			eprintln!("Error: {}", message);
-			Component { element: Element::default(), name: parse_tree.name.clone() }
+			Component { root: Element::default(), props: parse_tree.props.clone(), name: parse_tree.name.clone() }
 		}
 	}
 }
@@ -488,7 +608,7 @@ impl ElementImpl for Rect {
 }
 
 impl Rect {
-	pub fn construct(scope: &Module, parse_tree: &ParserElement) -> ConstructedElementImpl {
+	pub fn construct(scope: &mut Module, parse_tree: &ParserElement) -> ConstructedElementImpl {
 		let data = Rect {
 			clip: Value::Boolean(true),
 			width: Value::Px(0.0),
@@ -499,7 +619,12 @@ impl Rect {
 			border_color: Value::Color(0,0,0,0.0),
 			background: Value::Color(0,0,0,0.0),
 		};
-		ConstructedElementImpl::new(Box::new(data), build_elements(scope, &parse_tree.children))
+		
+		ConstructedElementImpl::new(
+			Box::new(data),
+			build_elements(scope, &parse_tree.children),
+			Default::default(),
+		)
 	}
 }
 
@@ -512,7 +637,7 @@ pub struct Scroll {
 }
 
 impl Scroll {
-	pub fn construct(scope: &Module, parse_tree: &ParserElement) -> ConstructedElementImpl {
+	pub fn construct(scope: &mut Module, parse_tree: &ParserElement) -> ConstructedElementImpl {
 		ConstructedElementImpl::new(
 			Box::new(
 				Scroll {
@@ -523,6 +648,7 @@ impl Scroll {
 				}
 			),
 			build_elements(scope, &parse_tree.children),
+			Default::default(),
 		)
 	}
 }
@@ -551,71 +677,49 @@ impl ElementImpl for Scroll {
 
 #[derive(Debug)]
 pub struct Span {
+	pub x: Value,
+	pub y: Value,
 	pub color: Value,
 	pub max_width: Value,
 	pub padding: Value,
-	pub events_click: Value,
 }
 
 impl Span {
-	pub fn construct(scope: &Module, parse_tree: &ParserElement) -> ConstructedElementImpl {
+	pub fn construct(scope: &mut Module, parse_tree: &ParserElement) -> ConstructedElementImpl {
 		ConstructedElementImpl::new(
 			Box::new(
 				Span {
+					x: Value::Px(0.0),
+					y: Value::Px(0.0),
 					color: Value::Color(0,0,0,1.0),
 					max_width: Value::Unset,
 					padding: Value::Px(0.0),
-					events_click: Value::Unset,
 				}
 			),
 			build_elements(scope, &parse_tree.children),
+			EventsSpec::default(),
 		)
 	}
-}
-
-enum Event {
-	Click,
-}
-
-fn events_type<'a, T: AsRef<[Event]>>(arr: T) -> Type {
-	let mut map = HashMap::new();
-	for e in arr.as_ref() {
-		match e {
-			Event::Click => {
-				map.insert("click".to_owned(), Type::Callback);
-			},
-		}
-	}
-	Type::Object(map)
 }
 
 impl ElementImpl for Span {
 	fn property_types(&self) -> HashMap<String, Type> {
 		hashmap![
 			"color".into() => Type::Brush,
+			"x".into() => Type::Length,
+			"y".into() => Type::Length,
 			"max_width".into() => Type::Length,
 			"padding".into() => Type::Length,
-			"events".into() => events_type([
-				Event::Click,
-			]),
 		]
 	}
 
 	fn set_property(&mut self, k: &String, v: &Value) -> SetPropertyResult {
 		match k.as_str() {
 			"color" => { self.color = v.clone() },
+			"x" => { self.x = v.clone() },
+			"y" => { self.y = v.clone() },
 			"max_width" => { self.max_width = v.clone() },
 			"padding" => { self.padding = v.clone() },
-			"events" => {
-				match v {
-					Value::Object(map) => {
-						if let Some(value) = map.get("click") {
-							self.events_click = value.clone();
-						}
-					},
-					_ => { return SetPropertyResult::TypeError },
-				}
-			},
 			_ => { return SetPropertyResult::Ignore },
 		}
 		SetPropertyResult::Set
@@ -628,10 +732,11 @@ pub struct Text {
 }
 
 impl Text {
-	pub fn construct(scope: &Module, parse_tree: &ParserElement) -> ConstructedElementImpl {
+	pub fn construct(scope: &mut Module, parse_tree: &ParserElement) -> ConstructedElementImpl {
 		ConstructedElementImpl::new(
 			Box::new(Text { content: Value::String("".to_owned()) }),
-			build_elements(scope, &parse_tree.children)
+			build_elements(scope, &parse_tree.children),
+			Default::default(),
 		)
 	}
 }
@@ -653,28 +758,32 @@ impl ElementImpl for Text {
 #[derive(Debug)]
 pub struct ComponentInstance {
 	pub name: String,
-	pub data_types: HashMap<String, Type>,
+	pub prop_decls: HashMap<String, PropDecl>,
 	pub properties: HashMap<String, Value>,
 }
 
 impl ComponentInstance {
 	pub fn construct(
-		scope: &Module,
+		scope: &mut Module,
 		component: &Component,
 		parse_tree: &ParserElement,
 	) -> ConstructedElementImpl {
 		let data = ComponentInstance {
 			name: component.name.clone(),
-			data_types: component.element.data_types.clone(),
+			prop_decls: component.props.clone(),
 			properties: HashMap::new(),
 		};
-		ConstructedElementImpl::new(Box::new(data), build_elements(scope, &parse_tree.children))
+		ConstructedElementImpl::new(
+			Box::new(data),
+			build_elements(scope, &parse_tree.children),
+			Default::default(),
+		)
 	}
 }
 
 impl ElementImpl for ComponentInstance {
 	fn set_property(&mut self, k: &String, v: &Value) -> SetPropertyResult {
-		if self.data_types.contains_key(k) {
+		if self.prop_decls.contains_key(k) {
 			self.properties.insert(k.clone(), v.clone());
 			return SetPropertyResult::Set
 		}
@@ -682,7 +791,11 @@ impl ElementImpl for ComponentInstance {
 	}
 
 	fn property_types(&self) -> HashMap<String, Type> {
-		self.data_types.clone()
+		self.prop_decls
+			.iter()
+			.fold(
+				HashMap::new(),
+				|mut map, (k, v)| { map.insert(k.clone(), v.prop_type.clone()); map })
 	}
 }
 
@@ -718,29 +831,31 @@ impl LayoutItem {
 
 #[derive(Debug)]
 pub struct Layout {
-	pub width: Value,
-	pub height: Value,
-	pub x: Value,
-	pub y: Value,
+	pub rect: Rect,
+	// pub width: Value,
+	// pub height: Value,
+	// pub x: Value,
+	// pub y: Value,
 	pub padding: Value,
+	pub spacing: Value,
 	pub column: bool,
 	pub grow: bool,
 }
 
 impl Layout {
-	pub fn row_stretch(scope: &Module, parse_tree: &ParserElement) -> ConstructedElementImpl {
+	pub fn row_stretch(scope: &mut Module, parse_tree: &ParserElement) -> ConstructedElementImpl {
 		Self::construct(scope, parse_tree, false, false)
 	}
-	pub fn row_grow(scope: &Module, parse_tree: &ParserElement) -> ConstructedElementImpl {
+	pub fn row_grow(scope: &mut Module, parse_tree: &ParserElement) -> ConstructedElementImpl {
 		Self::construct(scope, parse_tree, false, true)
 	}
-	pub fn column_stretch(scope: &Module, parse_tree: &ParserElement) -> ConstructedElementImpl {
+	pub fn column_stretch(scope: &mut Module, parse_tree: &ParserElement) -> ConstructedElementImpl {
 		Self::construct(scope, parse_tree, true, false)
 	}
-	pub fn column_grow(scope: &Module, parse_tree: &ParserElement) -> ConstructedElementImpl {
+	pub fn column_grow(scope: &mut Module, parse_tree: &ParserElement) -> ConstructedElementImpl {
 		Self::construct(scope, parse_tree, true, true)
 	}
-	pub fn construct(scope: &Module, parse_tree: &ParserElement, column: bool, grow: bool) -> ConstructedElementImpl {
+	pub fn construct(scope: &mut Module, parse_tree: &ParserElement, column: bool, grow: bool) -> ConstructedElementImpl {
 		let (width, height) = match (column, grow) {
 			(false, false) => {
 				(Value::Px(0.0), Value::Unset)
@@ -753,11 +868,18 @@ impl Layout {
 			}
 		};
 		let data = Layout {
-			x: Value::Px(0.0),
-			y: Value::Px(0.0),
+			rect: Rect {
+				clip: Value::Boolean(true),
+				x: Value::Px(0.0),
+				y: Value::Px(0.0),
+				width,
+				height,
+				border_width: Value::Px(0.0),
+				border_color: Value::Color(0,0,0,0.0),
+				background: Value::Color(0,0,0,0.0),
+			},
 			padding: Value::Px(0.0),
-			width,
-			height,
+			spacing: Value::Px(0.0),
 			column,
 			grow,
 		};
@@ -767,51 +889,50 @@ impl Layout {
 				scope,
 				&parse_tree.children,
 				AddedProperties::Layout(LayoutItem::new(column, grow)),
-			)
+			),
+			EventsSpec {
+				pointer_click: true,
+				pointer_out: true,
+				pointer_in: true,
+				pointer_press: true,
+				pointer_release: true,
+				..Default::default()
+			},
 		)
 	}
 }
 
 impl ElementImpl for Layout {
 	fn property_types(&self) -> HashMap<String, Type> {
+		let mut props = self.rect.property_types();
 		match (self.column, self.grow) {
-			(_, false) => {
-				hashmap![
-					"x".into() => Type::Length,
-					"y".into() => Type::Length,
-					"width".into() => Type::Length,
-					"height".into() => Type::Length,
-					"padding".into() => Type::Length,
-				]
-			},
 			(false, true) => {
-				hashmap![
-					"x".into() => Type::Length,
-					"y".into() => Type::Length,
-					"height".into() => Type::Length,
-					"padding".into() => Type::Length,
-				]
+				props.remove("width".into());
 			},
 			(true, true) => {
-				hashmap![
-					"x".into() => Type::Length,
-					"y".into() => Type::Length,
-					"width".into() => Type::Length,
-					"padding".into() => Type::Length,
-				]
-			}
+				props.remove("height".into());
+			},
+			_ => {},
 		}
+		props
 	}
 
 	fn set_property(&mut self, k: &String, v: &Value) -> SetPropertyResult {
 		match (k.as_str(), self.column, self.grow) {
-			("width", _, false) => { self.width = v.clone() }
-			("height", _, false) => { self.height = v.clone() }
-			("width", true, true) => { self.width = v.clone() }
-			("height", false, true) => { self.height = v.clone() }
-			("x", _, _) => { self.x = v.clone() }
-			("y", _, _) => { self.y = v.clone() }
-			("padding", _, _) => { self.padding = v.clone() }
+			("width", _, false) => { self.rect.width = v.clone() },
+			("height", _, false) => { self.rect.height = v.clone() },
+			("width", true, true) => { self.rect.width = v.clone() },
+			("height", false, true) => { self.rect.height = v.clone() },
+			("clip", ..) => { self.rect.clip = v.clone() },
+			("x", ..) => { self.rect.x = v.clone() },
+			("y", ..) => { self.rect.y = v.clone() },
+			("width", ..) => { self.rect.width = v.clone() },
+			("height", ..) => { self.rect.height = v.clone() },
+			("border_width", ..) => { self.rect.border_width = v.clone() },
+			("border_color", ..) => { self.rect.border_color = v.clone() },
+			("background", ..) => { self.rect.background = v.clone() },
+			("padding", ..) => { self.padding = v.clone() }
+			("spacing", ..) => { self.spacing = v.clone() }
 			_ => { return SetPropertyResult::Ignore }
 		}
 		SetPropertyResult::Set

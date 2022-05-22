@@ -3,12 +3,6 @@ import "./main_view";
 
 accounts: [{ name: String; balance: String }];
 sidebar_width: Length = 288px;
-rect: {
-	x: Length = 20px;
-	y: Length = 20px;
-	width: Length = 100px;
-	height: Length = 100px;
-}
 
 row.stretch {
 	width: (parent.width);
@@ -21,12 +15,8 @@ row.stretch {
 		width: (sidebar_width);
 	}
 	main_view {
-		rect {
-			background: #f00;
-			x: (rect.x);
-			y: (rect.y);
-			width: (rect.width);
-			height: (rect.height);
-		}
+		show_budget: (show_budget);
+		show_txs: (show_txs);
+		show_reports: (show_reports);
 	}
 }

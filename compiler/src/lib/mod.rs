@@ -1,19 +1,22 @@
 #![allow(dead_code)]
 // #![allow(unused_variables)]
-#[macro_use] extern crate maplit;
+use maplit::hashmap;
 
 use std::collections::HashMap;
 
 mod parser;
 mod elements;
 mod web;
+mod native;
 
 use elements as el;
-use elements::{Element, Component, ComponentInstance};
+use elements::{Component, ComponentInstance};
 
 pub struct Module<'a> {
 	builtins: HashMap<String, Item>,
 	imports: &'a HashMap<String, PathBuf>,
+	props: &'a HashMap<String, PropDecl>,
+	stack: Vec<HashMap<String, Type>>,
 	components: &'a HashMap<PathBuf, Component>,
 }
 
@@ -28,11 +31,25 @@ pub enum Item {
 	Constructor(el::Constructor),
 }
 
+#[derive(Debug, Clone)]
+pub struct PropDecl {
+	pub is_pub: bool,
+	pub name: String,
+	pub prop_type: Type,
+	pub default: Option<Value>,
+}
+
 impl <'a> Module<'a> {
-	pub fn new(imports: &'a HashMap<String, PathBuf>, components: &'a HashMap<PathBuf, Component>) -> Self {
+	pub fn new(
+		imports: &'a HashMap<String, PathBuf>,
+		components: &'a HashMap<PathBuf, Component>,
+		props: &'a HashMap<String, PropDecl>,
+	) -> Self {
 		Self {
 			imports,
+			props,
 			components,
+			stack: Vec::new(),
 			builtins: hashmap![
 				// String::from("window") => Item::Constructor(el::Window::construct),
 				String::from("rect")   => Item::Constructor(el::Rect::construct),
@@ -53,7 +70,7 @@ impl <'a> Module<'a> {
 	}
 
 	pub fn construct(
-		&self,
+		&mut self,
 		parse_tree: &parser::Element,
 	) -> Result<el::ConstructedElementImpl, String> {
 		assert!(parse_tree.path.len() > 0);
@@ -65,7 +82,7 @@ impl <'a> Module<'a> {
 			}
 		}
 
-		Ok(self.lookup(&parse_tree.path)?(self, parse_tree,))
+		Ok(self.lookup(&parse_tree.path)?(self, parse_tree))
 	}
 	
 	fn lookup(&self, path: &Vec<String>) -> Result<el::Constructor, String> {
@@ -133,6 +150,8 @@ pub enum Expr {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
+	Any,
+	Int,
 	Length,
 	Brush,
 	String,
@@ -297,6 +316,7 @@ fn build_impl<'a>(
 	path: &PathBuf,
 	parse_trees: &HashMap<PathBuf, parser::Component>,
 	components: &'a mut HashMap<PathBuf, Component>,
+	web: bool,
 ) -> Result<&'a Component, String> {
 	use parser::CompileStatus;
 	
@@ -309,34 +329,46 @@ fn build_impl<'a>(
 	parse_tree.status.set(CompileStatus::Building);
 	
 	for (_, path) in parse_tree.imports_map.iter() {
-		build_impl(path, parse_trees, components)?;
+		build_impl(path, parse_trees, components, web)?;
 	}
 
-	let module = Module::new(&parse_tree.imports_map, components);
-	let component = el::build_component(&module, parse_tree);
+	let mut module = Module::new(&parse_tree.imports_map, components, &parse_tree.props);
+	let component = el::build_component(&mut module, parse_tree);
 	// println!("{:#?}", component);
 
 	let mut dir = path.parent().unwrap().to_path_buf();
 	dir.push("dist");
-	web::render(&component.element, &parse_tree.name, dir);
+
+	let script_path = path.with_extension("js");
+	let script = if script_path.is_file() {
+		let mut script = String::new();
+		fs::File::open(&script_path)
+			.expect(&format!("failed to open file: {}", script_path.display()))
+			.read_to_string(&mut script).unwrap();
+		Some(script)
+	} else {
+		None
+	};
+
+	native::render(&component, script, &parse_tree.name, dir, web);
 
 	parse_tree.status.set(CompileStatus::Done);
 	components.insert(path.clone(), component);
 	Ok(components.get(path).unwrap())
 }
 
-fn build(exe: &str, path: &str) -> Result<Vec<PathBuf>, String> {
+pub fn build(exe: &str, path: &str, web: bool) -> Result<Vec<PathBuf>, String> {
 	let mut parse_trees = HashMap::new();
 	let path = load_ui_component(&exe, &path, &mut parse_trees)?;
 	// println!("{:#?}", component);
 
 	let mut components = HashMap::new();
-	build_impl(&path, &parse_trees, &mut components)?;
+	build_impl(&path, &parse_trees, &mut components, web)?;
 
 	Ok(components.into_iter().map(|(k,_)|k).collect())
 }
 
-fn watch(exe: &str, path: &str) {
+pub fn watch(exe: &str, path: &str, web: bool) {
 	use notify::{Watcher, RecursiveMode, DebouncedEvent, watcher};
 	use std::sync::mpsc::channel;
 	use std::time::Duration;
@@ -346,7 +378,7 @@ fn watch(exe: &str, path: &str) {
 	let mut prev_paths = Vec::new();
 
 	let mut build_once = || {
-		match build(exe, path) {
+		match build(exe, path, web) {
 			Ok(paths) => {
 				for path in prev_paths.iter() {
 					watcher.unwatch(path).unwrap();
@@ -381,54 +413,5 @@ fn watch(exe: &str, path: &str) {
 		   },
 		   _ => {},
 		}
-	}
-}
-
-#[derive(Default)]
-struct Options {
-	exe: String,
-	file: String,
-	watch: bool,
-}
-
-fn process_args() -> Options {
-	let mut args = std::env::args();
-	let exe = args.next().unwrap();
-	let mut file = None;
-	let mut watch = None;
-	let mut fail = false;
-
-	for arg in args {
-		if arg == "--watch" {
-			if watch.is_some() {
-				fail = true;
-			}
-			watch = Some(true);
-		} else {
-			if file.is_some() {
-				fail = true;
-			}
-			file = Some(arg);
-		}
-	}
-
-	if fail || file.is_none() {
-		eprintln!("usage: {} FILE [--watch]", exe);
-		process::exit(1);
-	}
-
-	Options {
-		exe,
-		file: file.unwrap(),
-		watch: watch.unwrap_or_default(),
-	}
-}
-
-fn main() {
-	let options = process_args();
-	if options.watch {
-		watch(&options.exe, &options.file);
-	} else if let Err(message) = build(&options.exe, &options.file) {
-		eprintln!("{}", message)
 	}
 }

@@ -277,11 +277,13 @@ fn check_binding(
 	scope: &mut Module,
 	expected_type: Option<&Type>,
 	path: &[String],
-) -> Option<Type> {
+) -> Option<(Type, Ctx)> {
 	let mut binding_type = None;
+	let mut ctx = Ctx::Component;
 	for map in scope.stack.iter().rev() {
 		if let Some(t) = map.get(&path[0]) {
 			binding_type = Some(t);
+			ctx = Ctx::Repeater;
 			break;
 		}
 	}
@@ -307,18 +309,19 @@ fn check_binding(
 		},
 		_ => {},
 	}
-	binding_type.map(|t| t.clone())
+	binding_type.map(|t| (t.clone(), ctx))
 }
 
 fn check_and_push_repeater_bindings(
 	scope: &mut Module,
-	repeater: &Option<Repeater>,
+	repeater: &mut Option<Repeater>,
 ) {
-	let map = if let Some(repeater) = repeater.as_ref() {
-		match &repeater.collection {
-			Value::Binding(Expr::Path(path, ..)) => {
+	let map = if let Some(repeater) = repeater.as_mut() {
+		match &mut repeater.collection {
+			Value::Binding(Expr::Path(path, ref mut ctx)) => {
 				let t = check_binding(scope, Some(&Type::Iter(Box::new(Type::Any))), &path);
-				let item_type = if let Some(Type::Iter(t)) = t {
+				let item_type = if let Some((Type::Iter(t), new_ctx)) = t {
+					*ctx = new_ctx;
 					*t.clone()
 				} else {
 					Type::Any
@@ -329,8 +332,15 @@ fn check_and_push_repeater_bindings(
 				}
 				map
 			},
-			_ => {
-				unimplemented!();
+			Value::Int(_) => {
+				let mut map = hashmap![repeater.item.clone() => Type::Int];
+				if let Some(index) = &repeater.index {
+					map.insert(index.clone(), Type::Int);
+				}
+				map
+			}
+			x => {
+				unimplemented!("{:?}", x);
 			},
 		}
 	} else {
@@ -343,13 +353,12 @@ fn check_and_push_repeater_bindings(
 fn check_bindings(
 	scope: &mut Module,
 	expected_prop_types: &HashMap<String, Type>,
-	received_props: &HashMap<String, Value>,
-	events: &Events,
-	condition: &Option<Value>,
+	received_props: &mut HashMap<String, Value>,
+	condition: &mut Option<Value>,
 ) {
 	fn check_prop_bindings(
 		scope: &mut Module,
-		received_props: &HashMap<String, Value>,
+		received_props: &mut HashMap<String, Value>,
 		expected_types: Option<&HashMap<String, Type>>
 	) {
 		for (k, v) in received_props {
@@ -362,8 +371,10 @@ fn check_bindings(
 					};
 					check_prop_bindings(scope, map, expected_types);
 				},
-				Value::Binding(Expr::Path(path, Ctx::Component)) => {
-					check_binding(scope, expected_type, path);
+				Value::Binding(Expr::Path(path, ref mut ctx)) => {
+					if let Some((_, new_ctx)) = check_binding(scope, expected_type, path) {
+						*ctx = new_ctx;
+					}
 				},
 				_ => {},
 			}
@@ -371,30 +382,32 @@ fn check_bindings(
 	}
 	check_prop_bindings(scope, received_props, Some(expected_prop_types));
 
-	macro_rules! check_event_binding {
-		($id:ident) => {
-			match &events.$id {
-				Value::Binding(Expr::Path(path, Ctx::Component)) => {
-					check_binding(scope, Some(&Type::Callback), &path);
-				},
-				Value::Unset => {},
-				_ => {
-					unimplemented!();
-				},
-			}
-		};
-	}
-	check_event_binding!(pointer_click);
-	check_event_binding!(pointer_press);
-	check_event_binding!(pointer_release);
-	check_event_binding!(pointer_move);
-	check_event_binding!(pointer_in);
-	check_event_binding!(pointer_out);
+	// macro_rules! check_event_binding {
+	// 	($id:ident) => {
+	// 		match &events.$id {
+	// 			Value::Binding(Expr::Path(path, Ctx::Component)) => {
+	// 				check_binding(scope, Some(&Type::Callback), &path);
+	// 			},
+	// 			Value::Unset => {},
+	// 			_ => {
+	// 				unimplemented!();
+	// 			},
+	// 		}
+	// 	};
+	// }
+	// check_event_binding!(pointer_click);
+	// check_event_binding!(pointer_press);
+	// check_event_binding!(pointer_release);
+	// check_event_binding!(pointer_move);
+	// check_event_binding!(pointer_in);
+	// check_event_binding!(pointer_out);
 
-	if let Some(condition) = condition.as_ref() {
+	if let Some(condition) = condition.as_mut() {
 		match condition {
-			Value::Binding(Expr::Path(path, ..)) => {
-				check_binding(scope, Some(&Type::Boolean), &path);
+			Value::Binding(Expr::Path(path, ref mut ctx)) => {
+				if let Some((_, new_ctx)) = check_binding(scope, Some(&Type::Boolean), &path) {
+					*ctx = new_ctx;
+				}
 			},
 			_ => {
 				unimplemented!();
@@ -409,13 +422,13 @@ impl Element {
 		parse_tree: &ParserElement,
 		mut added_properties: AddedProperties,
 	) -> Result<Self, String> {
-		let repeater = parse_tree.repeater.as_ref().map(|e| Repeater {
+		let mut repeater = parse_tree.repeater.as_ref().map(|e| Repeater {
 			index: e.index.as_ref().map(|e| e.into()),
 			item: e.item.clone(),
 			collection: e.collection.clone(),
 		});
 
-		check_and_push_repeater_bindings(scope, &repeater);
+		check_and_push_repeater_bindings(scope, &mut repeater);
 
 		let ConstructedElementImpl {
 			mut element_impl,
@@ -423,37 +436,33 @@ impl Element {
 			events_spec,
 		} = scope.construct(&parse_tree)?;
 
-		// println!("{:#?}", parse_tree.properties);
+		let mut condition = parse_tree.condition.clone();
+		let mut properties = parse_tree.properties.clone();
+
+		check_bindings(
+			scope,
+			&element_impl.property_types(),
+			&mut properties,
+			&mut condition,
+		);
+
 		let mut events = Events::default();
 		set_properties(
-			&parse_tree.properties,
+			&properties,
 			&events_spec,
 			&mut events,
 			&mut element_impl,
 			&mut added_properties,
 		);
 
-		let condition = parse_tree.condition.clone();
-		// let data = parse_tree.data.clone();
-
-		check_bindings(
-			scope,
-			&element_impl.property_types(),
-			&parse_tree.properties,
-			&events,
-			&condition,
-		);
-
 		if repeater.is_some() {
 			scope.stack.pop();
 		}
 
-		// unimplemented!();
 		Ok(Element {
 			tag: parse_tree.path.join("."),
 			condition,
 			repeater,
-			// data_types,
 			children,
 			element_impl,
 			added_properties,

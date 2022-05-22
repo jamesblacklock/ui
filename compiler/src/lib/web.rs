@@ -759,6 +759,7 @@ impl RenderJs for Value {
 						Ctx::Component => "d.__props.",
 						Ctx::Element => "e.__ctx.",
 						Ctx::Parent => "e.__ctx.parent.",
+						Ctx::Repeater => unimplemented!(),
 					};
 					write!(ctx.file, "{base}{}", path.join(".__props.")).unwrap();
 				}

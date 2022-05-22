@@ -29,20 +29,6 @@ fn render_element(e: &Element, ctx: &mut NativeRenderer) -> TokenStream {
 	let parent = RenderNative::render(e.element_impl.as_ref(), e.data(), ctx);
 
 	let index = ctx.index;
-	let cond = if let Some(cond) = &e.condition {
-		let cond = cond.to_tokens();
-		quote!(
-			if #cond {
-                let mut e = ui::element_in(parent, e_impl, #index);
-            } else {
-                ui::element_out(parent, e_impl, #index);
-            }
-		)
-	} else {
-		quote!(
-			let mut e = ui::element_in(parent, e_impl, #index);
-		)
-	};
 
 	let mut children = Vec::new();
 	for (i, child)in e.children.iter().enumerate() {
@@ -53,17 +39,65 @@ fn render_element(e: &Element, ctx: &mut NativeRenderer) -> TokenStream {
 		}
 	}
 
-	quote!(
-		#parent
-		#cond
-		#(
-			let mut e = {
-				let parent = e;
-				#children
-				parent
-			};
-		)*
-	)
+	if let Some(repeater) = &e.repeater {
+		let collection = repeater.collection.to_tokens_iter();
+		let group = quote!(
+			let parent = ui::begin_group(parent, #index);
+			let mut i = 0;
+			for item in #collection {
+				#parent
+				let e = ui::element_in(parent, e_impl, i);
+				#(
+					let e = {
+						let parent = e;
+						#children
+						parent
+					};
+				)*
+				i += 1;
+			}
+			ui::end_group(parent, i);
+		);
+		if let Some(cond) = &e.condition {
+			let cond = cond.to_tokens();
+			quote!(
+				if #cond {
+					#group
+				} else {
+					ui::element_out(parent, Box::new(ui::Group), #index);
+				}
+			)
+		} else {
+			group
+		}
+	} else {
+		let body = quote!(
+			let e = ui::element_in(parent, e_impl, #index);
+			#(
+				let e = {
+					let parent = e;
+					#children
+					parent
+				};
+			)*
+		);
+		if let Some(cond) = &e.condition {
+			let cond = cond.to_tokens();
+			quote!(
+				#parent
+				if #cond {
+					#body
+				} else {
+					ui::element_out(parent, e_impl, #index);
+				}
+			)
+		} else {
+			quote!(
+				#parent
+				#body
+			)
+		}
+	}
 }
 
 pub fn render<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
@@ -92,15 +126,15 @@ pub fn render<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 		let props = component.props.iter().map(|(name, decl)| {
 			let name = format_ident!("{}", name);
 			let setter_name = format_ident!("set_{}", name);
-			let prop_type = decl.prop_type.to_tokens();
+			// let prop_type = decl.prop_type.to_tokens();
 			quote!(
 				#[wasm_bindgen::prelude::wasm_bindgen(getter)]
-				pub fn #name(&self) -> #prop_type {
-					self.object.component.#name.clone()
+				pub fn #name(&self) -> wasm_bindgen::JsValue {
+					ui::web::ConvertJsValue::js_value(&self.object.component.#name)
 				}
 				#[wasm_bindgen::prelude::wasm_bindgen(setter)]
-				pub fn #setter_name(&mut self, #name: #prop_type) {
-					self.object.component.#name = #name;
+				pub fn #setter_name(&mut self, #name: wasm_bindgen::JsValue) {
+					self.object.component.#name = ui::web::ConvertJsValue::from_js_value(#name);
 				}
 			)
 		});
@@ -121,6 +155,7 @@ pub fn render<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 				}
 				fn render(&mut self) {
 					ui::Component::update(&mut self.component, &mut self.root);
+					self.web_element.last_in = None;
 					ui::web::RenderWeb::render(&mut self.root, &mut self.web_element, 0, true);
 				}
 			}
@@ -139,7 +174,7 @@ pub fn render<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 			impl #struct_name {
 				pub fn attach_to_element(self, e: &web_sys::Node) -> #interface_struct_name {
 					let mut target = #target_struct_name::new(
-						ui::web::WebElement::new(e.clone()),
+						ui::web::WebElement::new(Some(e.clone())),
 						self
 					);
 					target.render();
@@ -152,7 +187,7 @@ pub fn render<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 	};
 
 	let code = quote!(
-		#[allow(unused_mut, unused_variables)]
+		#[allow(unused_variables)]
 		mod #mod_name {
 			use super::ui;
 			pub struct #struct_name {
@@ -280,10 +315,10 @@ impl Type {
 				quote!(i32)
 			},
 			Type::Length => {
-				quote!(f32)
+				quote!(ui::Length)
 			},
 			Type::Brush => {
-				quote!(Brush)
+				quote!(ui::Brush)
 			},
 			Type::String => {
 				quote!(String)
@@ -292,10 +327,14 @@ impl Type {
 				quote!(bool)
 			},
 			Type::Alignment => {
-				quote!(Alignment)
+				quote!(ui::Alignment)
 			},
 			Type::Callback => {
 				quote!(fn() -> ())
+			},
+			Type::Iter(t) => {
+				let t = t.to_tokens();
+				quote!(ui::Iterable<#t>)
 			},
 			_ => unimplemented!("render values as tokens unimplemented for {:?}", self)
 		}
@@ -303,7 +342,7 @@ impl Type {
 }
 
 impl Value {
-	fn optional_to_tokens(&self) -> TokenStream {
+	fn to_tokens_optional(&self) -> TokenStream {
 		match self {
 			Value::Unset => {
 				quote!(None)
@@ -314,10 +353,10 @@ impl Value {
 			},
 		}
 	}
-	fn to_tokens(&self) -> TokenStream {
+	fn to_tokens_move(&self) -> TokenStream {
 		match self {
 			Value::Px(n) => {
-				quote!(#n)
+				quote!(ui::Length::Px(#n))
 			},
 			Value::Color(r, g, b, a) => {
 				let r = *r as f32 / 255.0;
@@ -326,14 +365,48 @@ impl Value {
 				let a = *a;
 				quote!(ui::Color { r: #r, g: #g, b: #b, a: #a })
 			},
+			Value::Int(n) => {
+				quote!(#n)
+			},
 			Value::String(s) => {
 				quote!(#s.to_owned())
 			},
 			Value::Binding(Expr::Path(path, Ctx::Component)) => {
 				let ident = format_ident!("{}", path.join("."));
-				quote!(self.#ident.clone())
+				quote!(self.#ident)
+			},
+			Value::Binding(Expr::Path(path, Ctx::Repeater)) => {
+				if path.len() > 1 {
+					let ident = format_ident!("{}", path[1..].join("."));
+					quote!(item.#ident)
+				} else {
+					quote!(item)
+				}
 			},
 			_ => unimplemented!("render values as tokens unimplemented for {:?}", self)
+		}
+	}
+	fn to_tokens_iter(&self) -> TokenStream {
+		match self {
+			Value::Binding(Expr::Path(path, Ctx::Component)) => {
+				let tokens = self.to_tokens_move();
+				quote!(#tokens.iter())
+			},
+			_ => {
+				let tokens = self.to_tokens_move();
+				quote!(ui::Iterable::iter(&#tokens))
+			}
+		}
+	}
+	fn to_tokens(&self) -> TokenStream {
+		match self {
+			Value::Binding(Expr::Path(path, Ctx::Component)) => {
+				let tokens = self.to_tokens_move();
+				quote!(#tokens.clone())
+			},
+			_ => {
+				self.to_tokens_move()
+			}
 		}
 	}
 }
@@ -375,7 +448,7 @@ impl RenderNative for Span {
 	fn render(&self, _element_data: ElementData, _ctx: &mut NativeRenderer) -> TokenStream {
 		let x = self.x.to_tokens();
 		let y = self.y.to_tokens();
-		let max_width = self.max_width.optional_to_tokens();
+		let max_width = self.max_width.to_tokens_optional();
 		quote!(
 			let e_impl = Box::new(
 				ui::Span {

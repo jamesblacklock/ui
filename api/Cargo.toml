@@ -27,9 +27,12 @@ wgpu = { version = "0.12.0", optional = true }
 winit = { version = "0.26.1", optional = true }
 bytemuck = { version = "1.9.1", features = [ "derive" ], optional = true }
 wasm-bindgen = { version = "0.2.80", optional = true }
+js-sys = { version = "0.3.57", optional = true }
+regex = { version = "1.5.6", optional = true }
+console_error_panic_hook = { version = "0.1.7", optional = true }
 
 [features]
 native = ["wgpu", "winit", "bytemuck"]
-web = ["wasm-bindgen", "web-sys"]
+web = ["wasm-bindgen", "web-sys", "regex", "js-sys", "console_error_panic_hook"]
 
 

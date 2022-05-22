@@ -13,7 +13,19 @@ use super::{
 	Bounds,
 	Root,
 	Rect,
+	Span,
+	Text,
 };
+
+
+
+#[derive(Debug, Clone)]
+pub struct FloatBounds {
+	pub x: f32,
+	pub y: f32,
+	pub width: f32,
+	pub height: f32,
+}
 
 pub struct ComponentWindow<T: Component + 'static> {
 	window: Window,
@@ -30,6 +42,8 @@ pub trait RenderNative {
 }
 
 impl RenderNative for Root {}
+impl RenderNative for Span {}
+impl RenderNative for Text {}
 
 impl RenderNative for Rect {
 	fn render(&self, ctx: &ElementContext, encoder: &mut wgpu::CommandEncoder) {
@@ -274,7 +288,7 @@ pub struct ElementContext<'a> {
 	pub scale_factor: f32,
 	pub vw: f32,
 	pub vh: f32,
-	pub bounds: Bounds,
+	pub bounds: FloatBounds,
 	pub frame: &'a wgpu::SurfaceTexture,
 	pub texture_format: wgpu::TextureFormat,
 	pub device: &'a wgpu::Device,
@@ -300,7 +314,7 @@ impl <'a> ElementContext<'a> {
 			vw: width,
 			vh: height,
 			scale_factor,
-			bounds: Bounds { x: 0.0, y: 0.0, width, height },
+			bounds: FloatBounds { x: 0.0, y: 0.0, width, height },
 		}
 	}
 }

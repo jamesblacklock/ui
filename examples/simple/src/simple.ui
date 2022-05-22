@@ -2,6 +2,7 @@ pub show: Boolean;
 pub text: String;
 pub x: Length;
 pub y: Length;
+pub strings: [String];
 
 rect {
     x: 100px;
@@ -10,8 +11,8 @@ rect {
     height: 400px;
     background: #e44;
 
-    span {
-        (text)
+    span if (show) for str in (strings) {
+        (str)
     }
 
     rect {

@@ -139,6 +139,7 @@ impl <'a> Module<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Ctx {
 	Component,
+	Repeater,
 	Element,
 	Parent,
 }
@@ -152,6 +153,7 @@ pub enum Expr {
 pub enum Type {
 	Any,
 	Int,
+	Float,
 	Length,
 	Brush,
 	String,

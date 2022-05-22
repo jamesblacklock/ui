@@ -241,6 +241,8 @@ fn prop_type(input: &str) -> IResult<&str, (Type, Option<Value>)> {
 	alt((
 		pair(
 			alt((
+				map(tag("Int"),       |_| Type::Int),
+				map(tag("Float"),     |_| Type::Float),
 				map(tag("Length"),    |_| Type::Length),
 				map(tag("Brush"),     |_| Type::Brush),
 				map(tag("String"),    |_| Type::String),
@@ -479,8 +481,8 @@ fn object(input: &str) -> IResult<&str, Value> {
 fn value(input: &str) -> IResult<&str, Value> {
 	alt((
 		px,
-		map(float, |e| Value::Float(e)),
 		map(int, |e| Value::Int(e)),
+		map(float, |e| Value::Float(e)),
 		map(string, |e: &str| Value::String(e.to_owned())),
 		color,
 		boolean,

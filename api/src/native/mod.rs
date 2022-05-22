@@ -1,5 +1,3 @@
-use winit::window::WindowBuilder;
-
 use winit::{
 	event::{Event, WindowEvent},
 	event_loop::{ControlFlow, EventLoop},
@@ -10,14 +8,13 @@ use wgpu::util::DeviceExt;
 use super::{
 	Component,
 	Element,
-	Bounds,
+	// Bounds,
 	Root,
 	Rect,
 	Span,
 	Text,
+	Group,
 };
-
-
 
 #[derive(Debug, Clone)]
 pub struct FloatBounds {
@@ -42,6 +39,7 @@ pub trait RenderNative {
 }
 
 impl RenderNative for Root {}
+impl RenderNative for Group {}
 impl RenderNative for Span {}
 impl RenderNative for Text {}
 

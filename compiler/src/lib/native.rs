@@ -123,7 +123,7 @@ pub fn render<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 	let web_code = if web {
 		let target_struct_name = format_ident!("{}Target", struct_name);
 		let interface_struct_name = format_ident!("{}Interface", struct_name);
-		let props = component.props.iter().map(|(name, decl)| {
+		let props = component.props.iter().map(|(name, _decl)| {
 			let name = format_ident!("{}", name);
 			let setter_name = format_ident!("set_{}", name);
 			// let prop_type = decl.prop_type.to_tokens();
@@ -187,7 +187,7 @@ pub fn render<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 	};
 
 	let code = quote!(
-		#[allow(unused_variables)]
+		#[allow(unused_variables, dead_code)]
 		mod #mod_name {
 			use super::ui;
 			pub struct #struct_name {
@@ -388,7 +388,7 @@ impl Value {
 	}
 	fn to_tokens_iter(&self) -> TokenStream {
 		match self {
-			Value::Binding(Expr::Path(path, Ctx::Component)) => {
+			Value::Binding(..) => {
 				let tokens = self.to_tokens_move();
 				quote!(#tokens.iter())
 			},
@@ -400,7 +400,7 @@ impl Value {
 	}
 	fn to_tokens(&self) -> TokenStream {
 		match self {
-			Value::Binding(Expr::Path(path, Ctx::Component)) => {
+			Value::Binding(..) => {
 				let tokens = self.to_tokens_move();
 				quote!(#tokens.clone())
 			},

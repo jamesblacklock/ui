@@ -169,7 +169,6 @@ pub fn render<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 				web_element: ui::web::WebElement,
 				root: ui::Element,
 			}
-			
 			impl Target {
 				fn new(web_element: ui::web::WebElement, component: #struct_name) -> Self {
 					Self {
@@ -213,8 +212,8 @@ pub fn render<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 				#(#props)*
 			}
 			impl Props {
-				pub fn from(value: &wasm_bindgen::JsValue) -> Props {
-					Props {
+				pub fn from(value: &wasm_bindgen::JsValue) -> Self {
+					Self {
 						#(#js_field_inits)*
 					}
 				}
@@ -238,6 +237,7 @@ pub fn render<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 		#[allow(unused_variables, dead_code)]
 		mod #mod_name {
 			use super::ui;
+			type This = #struct_name;
 			pub struct #struct_name {
 				#(#pub_fields)*
 				#(#priv_fields)*
@@ -364,10 +364,6 @@ impl NativeRenderer {
 	}
 }
 
-// trait ToTokens {
-// 	fn to_tokens(&self) -> TokenStream;
-// }
-
 impl Type {
 	fn to_tokens(&self) -> TokenStream {
 		match self {
@@ -390,7 +386,7 @@ impl Type {
 				quote!(ui::Alignment)
 			},
 			Type::Callback => {
-				quote!(fn() -> ())
+				quote!(ui::Callback)
 			},
 			Type::Iter(t) => {
 				let t = t.to_tokens();

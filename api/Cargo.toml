@@ -33,6 +33,7 @@ regex = { version = "1.5.6", optional = true }
 console_error_panic_hook = { version = "0.1.7", optional = true }
 
 [features]
+default = ["native"]
 native = ["wgpu", "wgpu_text", "winit", "bytemuck"]
 web = ["wasm-bindgen", "web-sys", "regex", "js-sys", "console_error_panic_hook"]
 

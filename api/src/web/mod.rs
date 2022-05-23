@@ -1,5 +1,6 @@
 use wasm_bindgen::{ JsCast, prelude::* };
 use js_sys::Array as JsArray;
+use std::cell::Cell;
 
 use super::{
 	Element,
@@ -10,6 +11,8 @@ use super::{
 	Text,
 	Length,
 	Iterable,
+	Dispatchable,
+	Callback,
 };
 
 impl Length {
@@ -26,6 +29,40 @@ impl Length {
 pub trait ConvertJsValue {
 	fn from_js_value(value: JsValue) -> Self;
 	fn js_value(&self) -> JsValue;
+}
+
+pub struct JsFunction(JsValue);
+impl Dispatchable for JsFunction {
+	fn call(&self) {
+		if let Ok(f) = self.0.clone().dyn_into::<js_sys::Function>() {
+			if let Err(err) = f.call0(&JsValue::null()) {
+				web_sys::console::log_1(&err);
+			}
+		}
+	}
+	fn clone(&self) -> Box<dyn Dispatchable> {
+		Box::new(JsFunction(self.0.clone()))
+	}
+}
+
+impl From<JsFunction> for Callback {
+	fn from(f: JsFunction) -> Self {
+		Callback(Cell::new(Some(Box::new(f))))
+	}
+}
+
+impl ConvertJsValue for Callback {
+	fn js_value(&self) -> JsValue {
+		let f = self.clone();
+		Closure::once_into_js(move || f.call())
+			.as_ref()
+			.unchecked_ref::<wasm_bindgen::JsValue>()
+			.clone()
+	}
+
+	fn from_js_value(value: JsValue) -> Callback {
+		Callback::from(JsFunction(value))
+	}
 }
 
 impl ConvertJsValue for Length {
@@ -136,13 +173,13 @@ impl WebElement {
 }
 
 pub trait RenderWeb {
-    fn render<'a>(&mut self, parent: &'a mut WebElement, _i: usize, _show: bool) -> Option<&'a mut WebElement> {
+	fn render<'a>(&mut self, parent: &'a mut WebElement, _i: usize, _show: bool) -> Option<&'a mut WebElement> {
 		Some(parent)
 	}
 }
 
 impl RenderWeb for Element {
-    fn render<'a>(&mut self, parent: &'a mut WebElement, i: usize, _show: bool) -> Option<&'a mut WebElement> {
+	fn render<'a>(&mut self, parent: &'a mut WebElement, i: usize, _show: bool) -> Option<&'a mut WebElement> {
 		console_error_panic_hook::set_once();
 		if let Some(mut parent) = RenderWeb::render(self.element_impl.as_mut(), parent, i, self.show) {
 			if self.group {
@@ -156,7 +193,7 @@ impl RenderWeb for Element {
 		} else {
 			None
 		}
-    }
+	}
 }
 
 fn group_in<'a>(parent: &'a mut WebElement, i: usize) {
@@ -312,7 +349,7 @@ impl RenderWeb for Rect {
 
 		web_sys::console::error_1(&result.unwrap_err());
 		panic!();
-    }
+	}
 }
 
 impl RenderWeb for Span {
@@ -333,7 +370,7 @@ impl RenderWeb for Span {
 
 		web_sys::console::error_1(&result.unwrap_err());
 		panic!();
-    }
+	}
 }
 
 impl RenderWeb for Text {
@@ -344,11 +381,11 @@ impl RenderWeb for Text {
 			html_text_out(parent, &self.content, i);
 		}
 		return Some(get_web_element(parent, i));
-    }
+	}
 }
 
 impl RenderWeb for Group {
-    fn render<'a>(&mut self, parent: &'a mut WebElement, _i: usize, _show: bool) -> Option<&'a mut WebElement> {
+	fn render<'a>(&mut self, parent: &'a mut WebElement, _i: usize, _show: bool) -> Option<&'a mut WebElement> {
 		return Some(parent);
-    }
+	}
 }

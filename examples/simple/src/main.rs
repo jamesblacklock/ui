@@ -5,15 +5,14 @@ include!("./dist/simple.rs");
 
 fn main() {
 	let window_builder = WindowBuilder::new().with_title("hello world");
-	let window = ui::native::ComponentWindow::new(
-		window_builder,
-		simple::Simple::new(simple::Props {
-			x: ui::Length::Px(180.0),
-			y: ui::Length::Px(260.0),
-			show: true,
-			strings: ui::Iterable::from(["x", "y", "z"]),
-			text: "hello world".to_owned(),
-		})
-	);
+	let component = simple::Simple::new(simple::Props {
+		x: ui::Length::Px(100.0),
+		y: ui::Length::Px(100.0),
+		show: true,
+		strings: ui::Iterable::from(["string1", "string2"]),
+		text: "O, she hath misused me past the endurance of a block".to_owned(),
+		toggle_show: ui::Callback::from(&|| /*this.show = !this.show*/ { println!("test callback") }),
+	});
+	let window = ui::native::ComponentWindow::new(window_builder, component);
 	pollster::block_on(window.run());
 }

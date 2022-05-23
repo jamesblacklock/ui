@@ -3,6 +3,7 @@ pub text: String;
 pub x: Length;
 pub y: Length;
 pub strings: [String];
+pub toggle_show: Callback;
 
 state: Int;
 
@@ -27,6 +28,7 @@ rect {
         y: (y);
         width: 20px;
         height: 40px;
+        events.pointer.click: (toggle_show);
     }
 
     rect if (show) {

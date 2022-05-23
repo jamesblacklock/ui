@@ -11,6 +11,10 @@
 			strings: ["string1", "string2"],
 			show: true,
 			text: "O, she hath misused me past the endurance of a block",
+			toggle_show() {
+				window.c.show = !window.c.show;
+				console.log("I received this:", this);
+			}
 		});
 	}
 	main();

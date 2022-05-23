@@ -1,1 +1,1 @@
-cargo run --features=native,web simple_native
+cargo run --bin simple_native --features=native --no-default-features

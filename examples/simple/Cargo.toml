@@ -7,7 +7,7 @@ build = "src/build.rs"
 [dependencies]
 winit = "^0.26.1"
 pollster = "0.2.5"
-ui = { path = "../../api", optional = true }
+ui = { path = "../../api", default-features = false, optional = true }
 wasm-bindgen = { version = "0.2.80", optional = true }
 web-sys = { version = "0.3.4", features = ["Element"], optional = true }
 js-sys = { version = "0.3.57", optional = true }
@@ -27,6 +27,6 @@ path = "src/web.rs"
 required-features = ["web"]
 
 [features]
-default = ["web"]
+default = ["native", "web"]
 web = ["ui/web", "wasm-bindgen", "web-sys", "js-sys"]
 native = ["ui/native"]

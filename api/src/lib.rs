@@ -175,6 +175,55 @@ pub struct Element {
 	pub group: bool,
 }
 
+
+use std::cell::Cell;
+
+pub trait Dispatchable {
+	fn call(&self) {}
+	fn clone(&self) -> Box<dyn Dispatchable>;
+}
+
+#[derive(Default)]
+pub struct Callback(Cell<Option<Box<dyn Dispatchable>>>);
+
+impl Callback {
+	pub fn call(&self) {
+		let f = self.0.replace(None);
+		f.as_ref().map(|f| f.call());
+		self.0.replace(f);
+	}
+}
+
+impl Clone for Callback {
+	fn clone(&self) -> Self {
+		let f = self.0.replace(None);
+		if let Some(f) = f {
+			let clone = f.clone();
+			self.0.replace(Some(f));
+			Callback(Cell::new(Some(clone)))
+		} else {
+			Callback::default()
+		}
+	}
+}
+
+impl <T: 'static + Fn()> From<&'static T> for Callback {
+	fn from(f: &'static T) -> Self {
+		let f: &'static dyn Fn() = f;
+		Callback(Cell::new(Some(Box::new(f))))
+	}
+}
+
+impl Dispatchable for &'static dyn Fn() {
+	fn call(&self) {
+		let f: &dyn Fn() = self;
+		f();
+	}
+	fn clone(&self) -> Box<dyn Dispatchable> {
+		Box::new(*self)
+	}
+}
+
 impl Element {
 	pub fn root() -> Element {
 		Element {

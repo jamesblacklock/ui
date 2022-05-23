@@ -56,13 +56,22 @@ impl Bounds {
 #[derive(Debug, Clone)]
 pub enum Length {
 	Px(f32),
+	In(f32),
+	Cm(f32),
+	Mm(f32),
+}
+
+impl Default for Length {
+	fn default() -> Self {
+		Length::Px(0.0)
+	}
 }
 
 impl Length {
 	pub fn to_px(&self) -> f32 {
 		match *self {
 			Length::Px(f) => f,
-			// _ => unimplemented!()
+			_ => unimplemented!()
 		}
 	}
 }
@@ -71,6 +80,12 @@ impl Length {
 pub enum Iterable<T> {
 	Int(i32),
 	Array(Vec<T>),
+}
+
+impl <T> Default for Iterable<T> {
+	fn default() -> Self {
+		Iterable::Int(0)
+	}
 }
 
 impl <T> Iterable<T> {

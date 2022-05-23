@@ -15,9 +15,10 @@ use super::{
 impl Length {
 	fn as_css(&self) -> String {
 		match self {
-			Length::Px(px) => {
-				format!("{px}px")
-			}
+			Length::Px(px) => format!("{px}px"),
+			Length::In(nn) => format!("{nn}in"),
+			Length::Cm(cm) => format!("{cm}cm"),
+			Length::Mm(mm) => format!("{mm}mm"),
 		}
 	}
 }
@@ -35,11 +36,19 @@ impl ConvertJsValue for Length {
 	fn from_js_value(value: JsValue) -> Length {
 		use regex::Regex;
 		if let Some(s) = value.as_string() {
-			let re = Regex::new(r"^(\d+(?:\.\d+)?|\.\d+)px$").unwrap();
+			let re = Regex::new(r"^(\d+(?:\.\d+)?|\.\d+)(px|in|cm|mm)$").unwrap();
 			if let Some(captures) = re.captures(&s) {
 				let f = str::parse::<f32>(&captures[1]).unwrap();
-				return Length::Px(f);
+				return match &captures[2] {
+					"px" => Length::Px(f),
+					"in" => Length::In(f),
+					"cm" => Length::Cm(f),
+					"mm" => Length::Mm(f),
+					_ => unreachable!(),
+				}
 			}
+		} else if let Some(f) = value.as_f64() {
+			return Length::Px(f as f32);
 		}
 		Length::Px(0.0)
 	}
@@ -195,7 +204,7 @@ fn get_html<'a>(parent: &'a mut WebElement, tag_or_content: &str, i: usize, is_t
 			};
 			children.push(WebElement::new(Some(e)))
 		} else if i > children.len() {
-			Err(&JsValue::from(&format!("i > parent.children.len() this should never happen!")))?;
+			Err(&JsValue::from(&format!("i > children.len() ({} > {}) this should never happen!", i, children.len())))?;
 		}
 		return &mut children[i];
 	};

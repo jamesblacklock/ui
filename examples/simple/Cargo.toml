@@ -10,6 +10,7 @@ pollster = "0.2.5"
 ui = { path = "../../api", optional = true }
 wasm-bindgen = { version = "0.2.80", optional = true }
 web-sys = { version = "0.3.4", features = ["Element"], optional = true }
+js-sys = { version = "0.3.57", optional = true }
 
 [build-dependencies]
 ui_compiler = { path = "../../compiler" }
@@ -27,5 +28,5 @@ required-features = ["web"]
 
 [features]
 default = ["web"]
-web = ["ui/web", "wasm-bindgen", "web-sys"]
+web = ["ui/web", "wasm-bindgen", "web-sys", "js-sys"]
 native = ["ui/native"]

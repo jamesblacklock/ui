@@ -42,8 +42,6 @@ fn render_element(e: &Element, ctx: &mut NativeRenderer) -> TokenStream {
 	if let Some(repeater) = &e.repeater {
 		let collection = repeater.collection.to_tokens_iter();
 		let group = quote!(
-			let parent = ui::begin_group(parent, #index);
-			let mut i = 0;
 			for item in #collection {
 				#parent
 				let e = ui::element_in(parent, e_impl, i);
@@ -56,19 +54,28 @@ fn render_element(e: &Element, ctx: &mut NativeRenderer) -> TokenStream {
 				)*
 				i += 1;
 			}
-			ui::end_group(parent, i);
 		);
 		if let Some(cond) = &e.condition {
 			let cond = cond.to_tokens();
 			quote!(
-				if #cond {
-					#group
-				} else {
-					ui::element_out(parent, Box::new(ui::Group), #index);
+				{
+					let parent = ui::begin_group(parent, #index);
+					let mut i = 0;
+					if #cond {
+						#group
+					}
+					ui::end_group(parent, i);
 				}
 			)
 		} else {
-			group
+			quote!(
+				{
+					let parent = ui::begin_group(parent, #index);
+					let mut i = 0;
+					#group
+					ui::end_group(parent, i);
+				}
+			)
 		}
 	} else {
 		let body = quote!(
@@ -122,40 +129,48 @@ pub fn render<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 		let name = format_ident!("{}", name);
 		let prop_type = decl.prop_type.to_tokens();
 		if decl.is_pub {
-			pub_fields.push(quote!(pub #name: #prop_type));
-			pub_field_inits.push(quote!(#name: props.#name));
+			pub_fields.push(quote!(pub #name: #prop_type,));
+			pub_field_inits.push(quote!(#name: props.#name,));
 		} else {
-			priv_fields.push(quote!(#name: #prop_type));
-			priv_field_inits.push(quote!(#name: Default::default()));
+			priv_fields.push(quote!(#name: #prop_type,));
+			priv_field_inits.push(quote!(#name: Default::default(),));
 		}
 	}
 
 	let web_code = if web {
-		let target_struct_name = format_ident!("{}Target", struct_name);
 		let interface_struct_name = format_ident!("{}Interface", struct_name);
-		let props = component.props.iter().filter(|(_, decl)| decl.is_pub).map(|(name, _decl)| {
-			let name = format_ident!("{}", name);
+		let mut js_field_inits = Vec::new();
+		let mut props = Vec::new();
+		for (name, _decl) in component.props.iter().filter(|(_, decl)| decl.is_pub) {
+			let name_ident = format_ident!("{}", name);
 			let setter_name = format_ident!("set_{}", name);
-			quote!(
+			let prop = quote!(
 				#[wasm_bindgen::prelude::wasm_bindgen(getter)]
-				pub fn #name(&self) -> wasm_bindgen::JsValue {
-					ui::web::ConvertJsValue::js_value(&self.object.component.#name)
+				pub fn #name_ident(&self) -> wasm_bindgen::JsValue {
+					ui::web::ConvertJsValue::js_value(&self.object.component.#name_ident)
 				}
 				#[wasm_bindgen::prelude::wasm_bindgen(setter)]
-				pub fn #setter_name(&mut self, #name: wasm_bindgen::JsValue) {
-					self.object.component.#name = ui::web::ConvertJsValue::from_js_value(#name);
+				pub fn #setter_name(&mut self, #name_ident: wasm_bindgen::JsValue) {
+					self.object.component.#name_ident = ui::web::ConvertJsValue::from_js_value(#name_ident);
 					self.trigger_update();
 				}
-			)
-		});
+			);
+
+			js_field_inits.push(quote!(
+				#name_ident: js_sys::Reflect::get(value, &wasm_bindgen::JsValue::from(#name))
+					.map(|e| ui::web::ConvertJsValue::from_js_value(e))
+					.unwrap_or_default(),));
+			props.push(prop);
+		}
+
 		quote!(
-			struct #target_struct_name {
+			struct Target {
 				component: #struct_name,
 				web_element: ui::web::WebElement,
 				root: ui::Element,
 			}
 			
-			impl #target_struct_name {
+			impl Target {
 				fn new(web_element: ui::web::WebElement, component: #struct_name) -> Self {
 					Self {
 						web_element,
@@ -172,7 +187,7 @@ pub fn render<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 			#[wasm_bindgen::prelude::wasm_bindgen]
 			#[repr(C)]
 			pub struct #interface_struct_name {
-				object: Box<#target_struct_name>,
+				object: Box<Target>,
 				animation_frame: i32,
 			}
 			use wasm_bindgen::JsCast;
@@ -184,7 +199,7 @@ pub fn render<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 				fn trigger_update(&mut self) {
 					let window = web_sys::window().unwrap();
 					window.cancel_animation_frame(self.animation_frame).unwrap();
-					let ptr: *mut SimpleTarget = self.object.as_mut();
+					let ptr: *mut Target = self.object.as_mut();
 					self.animation_frame = window
 						.request_animation_frame(
 							wasm_bindgen::prelude::Closure::once_into_js(move || unsafe {
@@ -197,9 +212,16 @@ pub fn render<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 				}
 				#(#props)*
 			}
+			impl Props {
+				pub fn from(value: &wasm_bindgen::JsValue) -> Props {
+					Props {
+						#(#js_field_inits)*
+					}
+				}
+			}
 			impl #struct_name {
 				pub fn attach_to_element(self, e: &web_sys::Node) -> #interface_struct_name {
-					let mut target = #target_struct_name::new(
+					let mut target = Target::new(
 						ui::web::WebElement::new(Some(e.clone())),
 						self
 					);
@@ -217,17 +239,17 @@ pub fn render<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 		mod #mod_name {
 			use super::ui;
 			pub struct #struct_name {
-				#(#pub_fields,)*
-				#(#priv_fields),*
+				#(#pub_fields)*
+				#(#priv_fields)*
 			}
 			pub struct Props {
-				#(#pub_fields),*
+				#(#pub_fields)*
 			}
 			impl #struct_name {
 				pub fn new(props: Props) -> Self {
 					Self {
-						#(#pub_field_inits,)*
-						#(#priv_field_inits),*
+						#(#pub_field_inits)*
+						#(#priv_field_inits)*
 					}
 				}
 			}

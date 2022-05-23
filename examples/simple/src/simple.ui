@@ -17,6 +17,10 @@ rect {
         (str)
     }
 
+    span {
+        (text)
+    }
+
     rect {
         background: #00f;
         x: (x);

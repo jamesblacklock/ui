@@ -147,11 +147,16 @@ pub fn render<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 			let prop = quote!(
 				#[wasm_bindgen::prelude::wasm_bindgen(getter)]
 				pub fn #name_ident(&self) -> wasm_bindgen::JsValue {
-					ui::web::ConvertJsValue::js_value(&self.object.component.#name_ident)
+					let target = self.object.take().unwrap();
+					let result = ui::web::ConvertJsValue::js_value(&target.component.#name_ident);
+					self.object.set(Some(target));
+					result
 				}
 				#[wasm_bindgen::prelude::wasm_bindgen(setter)]
 				pub fn #setter_name(&mut self, #name_ident: wasm_bindgen::JsValue) {
-					self.object.component.#name_ident = ui::web::ConvertJsValue::from_js_value(#name_ident);
+					let mut target = self.object.take().unwrap();
+					target.component.#name_ident = ui::web::ConvertJsValue::from_js_value(#name_ident);
+					self.object.set(Some(target));
 					self.trigger_update();
 				}
 			);
@@ -183,29 +188,37 @@ pub fn render<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 					ui::web::RenderWeb::render(&mut self.root, &mut self.web_element, 0, true);
 				}
 			}
-			#[wasm_bindgen::prelude::wasm_bindgen]
+			#[wasm_bindgen::prelude::wasm_bindgen(inspectable)]
 			#[repr(C)]
+			#[derive(Clone)]
 			pub struct #interface_struct_name {
-				object: Box<Target>,
+				object: std::rc::Rc<std::cell::Cell<Option<Target>>>,
 				animation_frame: i32,
 			}
 			use wasm_bindgen::JsCast;
 			#[wasm_bindgen::prelude::wasm_bindgen]
 			impl #interface_struct_name {
+				pub fn return_inteface(&self) -> #interface_struct_name {
+					#interface_struct_name {
+						object: self.object.clone(),
+						animation_frame: 0,
+					}
+				}
 				pub fn render(&mut self) {
-					self.object.render();
+					let mut target = self.object.take().unwrap();
+					target.render();
+					self.object.set(Some(target));
 				}
 				fn trigger_update(&mut self) {
 					let window = web_sys::window().unwrap();
 					window.cancel_animation_frame(self.animation_frame).unwrap();
-					let ptr: *mut Target = self.object.as_mut();
+
+					let mut clone = self.clone();
 					self.animation_frame = window
 						.request_animation_frame(
-							wasm_bindgen::prelude::Closure::once_into_js(move || unsafe {
-								(*ptr).render()
-							})
-							.as_ref()
-							.unchecked_ref(),
+							wasm_bindgen::prelude::Closure::once_into_js(move || clone.render())
+								.as_ref()
+								.unchecked_ref(),
 						)
 						.unwrap();
 				}
@@ -225,7 +238,7 @@ pub fn render<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 						self
 					);
 					target.render();
-					#interface_struct_name { object: Box::new(target), animation_frame: 0 }
+					#interface_struct_name { object: std::rc::Rc::new(std::cell::Cell::new(Some(target))), animation_frame: 0 }
 				}
 			}
 		)

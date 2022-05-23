@@ -16,6 +16,8 @@ use super::{
 	Group,
 };
 
+const TIMES_NEW_ROMAN: &[u8] = include_bytes!("./Times New Roman.ttf");
+
 #[derive(Debug, Clone)]
 pub struct FloatBounds {
 	pub x: f32,
@@ -34,20 +36,70 @@ pub struct ComponentWindow<T: Component + 'static> {
 	root: Element,
 }
 
+pub struct RenderContext<'a> {
+	pub encoder: wgpu::CommandEncoder,
+	pub bufs: Vec<wgpu::CommandBuffer>,
+	pub frame: wgpu::SurfaceTexture,
+	pub surface_config: &'a wgpu::SurfaceConfiguration,
+	pub device: &'a wgpu::Device,
+	pub queue: &'a wgpu::Queue,
+}
+
 pub trait RenderNative {
-	fn render(&self, _ctx: &ElementContext, _encoder: &mut wgpu::CommandEncoder) {}
+	fn render(&self, _ectx: &ElementContext, _rctx: &mut RenderContext) {}
 }
 
 impl RenderNative for Root {}
 impl RenderNative for Group {}
 impl RenderNative for Span {}
-impl RenderNative for Text {}
+
+impl RenderNative for Text {
+	fn render(&self, _ectx: &ElementContext, rctx: &mut RenderContext) {
+		use wgpu_text::{
+			BrushBuilder,
+			section::{
+				BuiltInLineBreaker,
+				Layout,
+				// OwnedText,
+				Section,
+				Text,
+				VerticalAlign,
+			}
+		};
+
+		let mut brush = BrushBuilder::using_font_bytes(TIMES_NEW_ROMAN)
+			.unwrap()
+			.build(rctx.device, rctx.surface_config);
+
+		let font_size = 32.0;
+		let section = Section::default()
+			.add_text(
+				Text::new(&self.content)
+					.with_scale(font_size)
+					.with_color([0.0, 0.0, 0.0, 1.0]),
+			)
+			.with_bounds((rctx.surface_config.width as f32 / 2.0, rctx.surface_config.height as f32))
+			.with_layout(
+				Layout::default()
+					.v_align(VerticalAlign::Center)
+					.line_breaker(BuiltInLineBreaker::AnyCharLineBreaker),
+			)
+			.with_screen_position((50.0, rctx.surface_config.height as f32 * 0.5))
+			.to_owned();
+
+		brush.queue(&section);
+
+		let view = rctx.frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
+		let buf = brush.draw(rctx.device, &view, rctx.queue);
+		rctx.bufs.push(buf);
+	}
+}
 
 impl RenderNative for Rect {
-	fn render(&self, ctx: &ElementContext, encoder: &mut wgpu::CommandEncoder) {
-		let view = ctx.frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
+	fn render(&self, ectx: &ElementContext, rctx: &mut RenderContext) {
+		let view = rctx.frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
 		
-		let pipeline = ctx.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+		let pipeline = rctx.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
 			label: None,
 			layout: Default::default(),
 			primitive: wgpu::PrimitiveState {
@@ -55,15 +107,15 @@ impl RenderNative for Rect {
 				..Default::default()
 			},
 			vertex: wgpu::VertexState {
-				module: &ctx.device.create_shader_module(&wgpu::include_wgsl!("vertex.wgsl")),
+				module: &rctx.device.create_shader_module(&wgpu::include_wgsl!("vertex.wgsl")),
 				entry_point: "vs_main",
 				buffers: &[Vertex::layout()],
 			},
 			fragment: Some(wgpu::FragmentState {
-				module: &ctx.device.create_shader_module(&wgpu::include_wgsl!("fragment.wgsl")),
+				module: &rctx.device.create_shader_module(&wgpu::include_wgsl!("fragment.wgsl")),
 				entry_point: "fs_main",
 				targets: &[wgpu::ColorTargetState {
-					format: ctx.texture_format,
+					format: rctx.surface_config.format,
 					blend: Some(wgpu::BlendState::REPLACE),
 					write_mask: wgpu::ColorWrites::ALL,
 				}],
@@ -73,20 +125,20 @@ impl RenderNative for Rect {
 			multiview: None,
 		});
 		
-		let (vertices, indices) = self.build_vertices(ctx);
-		let vertex_buf = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+		let (vertices, indices) = self.build_vertices(ectx);
+		let vertex_buf = rctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
 			label: None,
 			contents: bytemuck::cast_slice(&vertices),
 			usage: wgpu::BufferUsages::VERTEX,
 		});
-		let index_buf = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+		let index_buf = rctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
 			label: None,
 			contents: bytemuck::cast_slice(&indices),
 			usage: wgpu::BufferUsages::INDEX,
 		});
 		
 		{
-			let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+			let mut render_pass = rctx.encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
 				label: None,
 				color_attachments: &[wgpu::RenderPassColorAttachment {
 					view: &view,
@@ -128,14 +180,14 @@ impl Rect {
 }
 
 impl RenderNative for Element {
-	fn render(&self, parent_ctx: &ElementContext, encoder: &mut wgpu::CommandEncoder) {
+	fn render(&self, parent_ctx: &ElementContext, rctx: &mut RenderContext) {
 		let ctx = self.create_context(parent_ctx);
 
-		self.element_impl.render(&ctx, encoder);
+		self.element_impl.render(&ctx, rctx);
 
 		for e in self.children.iter() {
 			if e.show {
-				e.render(&ctx, encoder);
+				e.render(&ctx, rctx);
 			}
 		}
 	}
@@ -193,12 +245,7 @@ impl <T: Component> ComponentWindow<T> {
 		self.surface.configure(&device, &config);
 
 		self.event_loop.run(move |event, _, control_flow| {
-			let frame = self.surface.get_current_texture().unwrap();
 			let ctx = ElementContext::root_context(
-				&frame,
-				config.format,
-				&device,
-				&queue,
 				config.width as f32,
 				config.height as f32,
 				self.window.scale_factor() as f32,
@@ -206,17 +253,22 @@ impl <T: Component> ComponentWindow<T> {
 
 			match event {
 				Event::RedrawRequested(_) => {
-					let view = ctx.frame
-						.texture
-						.create_view(&wgpu::TextureViewDescriptor::default());
-					let mut encoder = ctx.device
-						.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-					
+					self.component.update(&mut self.root);
+
+					let mut rctx = RenderContext {
+						device: &device,
+						queue: &queue,
+						surface_config: &config,
+						frame: self.surface.get_current_texture().unwrap(),
+						encoder: device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None }),
+						bufs: Vec::new(),
+					};
+
 					{
-						let _ = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+						let _ = rctx.encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
 							label: None,
 							color_attachments: &[wgpu::RenderPassColorAttachment {
-								view: &view,
+								view: &rctx.frame.texture.create_view(&wgpu::TextureViewDescriptor::default()),
 								resolve_target: None,
 								ops: wgpu::Operations {
 									load: wgpu::LoadOp::Clear(self.background),
@@ -226,19 +278,19 @@ impl <T: Component> ComponentWindow<T> {
 							depth_stencil_attachment: None,
 						});
 					}
+					
+					RenderNative::render(&self.root, &ctx, &mut rctx);
 
-					self.component.update(&mut self.root);
-					RenderNative::render(&self.root, &ctx, &mut encoder);
+					queue.submit(Some(rctx.encoder.finish()));
+					queue.submit(rctx.bufs);
 
-					ctx.queue.submit(Some(encoder.finish()));
-					frame.present();
+					rctx.frame.present();
 				},
 				Event::WindowEvent {
 					window_id: _,
 					event: WindowEvent::Resized(size),
 					..
 				} => {
-					drop(frame);
 					config.width = size.width;
 					config.height = size.height;
 					self.surface.configure(&device, &config);
@@ -269,10 +321,6 @@ impl Element {
 		}
 		ElementContext {
 			parent: Some(parent),
-			frame: parent.frame,
-			texture_format: parent.texture_format,
-			device: parent.device,
-			queue: parent.queue,
 			scale_factor: parent.scale_factor,
 			vw: parent.vw,
 			vh: parent.vh,
@@ -287,28 +335,16 @@ pub struct ElementContext<'a> {
 	pub vw: f32,
 	pub vh: f32,
 	pub bounds: FloatBounds,
-	pub frame: &'a wgpu::SurfaceTexture,
-	pub texture_format: wgpu::TextureFormat,
-	pub device: &'a wgpu::Device,
-	pub queue: &'a wgpu::Queue,
 }
 
 impl <'a> ElementContext<'a> {
 	fn root_context(
-		frame: &'a wgpu::SurfaceTexture,
-		texture_format: wgpu::TextureFormat,
-		device: &'a wgpu::Device,
-		queue: &'a wgpu::Queue,
 		width: f32,
 		height: f32,
 		scale_factor: f32,
 	) -> Self {
 		ElementContext {
 			parent: None,
-			frame,
-			texture_format,
-			device,
-			queue,
 			vw: width,
 			vh: height,
 			scale_factor,

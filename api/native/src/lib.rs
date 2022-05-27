@@ -5,16 +5,7 @@ use winit::{
 };
 use wgpu::util::DeviceExt;
 
-use super::{
-	Component,
-	Element,
-	// Bounds,
-	Root,
-	Rect,
-	Span,
-	Text,
-	Group,
-};
+pub use ui_base::*;
 
 const TIMES_NEW_ROMAN: &[u8] = include_bytes!("./Times New Roman.ttf");
 
@@ -49,9 +40,16 @@ pub trait RenderNative {
 	fn render(&self, _ectx: &ElementContext, _rctx: &mut RenderContext) {}
 }
 
-impl RenderNative for Root {}
-impl RenderNative for Group {}
-impl RenderNative for Span {}
+impl RenderNative for ElementImpl {
+	fn render<'a>(&self, ectx: &ElementContext, rctx: &mut RenderContext) {
+		match self {
+			ElementImpl::Root|ElementImpl::Group => {},
+			ElementImpl::Rect(rect) => RenderNative::render(rect, ectx, rctx),
+			ElementImpl::Span(_span) => {},
+			ElementImpl::Text(text) => RenderNative::render(text, ectx, rctx),
+		}
+	}
+}
 
 impl RenderNative for Text {
 	fn render(&self, _ectx: &ElementContext, rctx: &mut RenderContext) {
@@ -125,7 +123,7 @@ impl RenderNative for Rect {
 			multiview: None,
 		});
 		
-		let (vertices, indices) = self.build_vertices(ectx);
+		let (vertices, indices) = build_rect_vertices(self, ectx);
 		let vertex_buf = rctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
 			label: None,
 			contents: bytemuck::cast_slice(&vertices),
@@ -158,30 +156,28 @@ impl RenderNative for Rect {
 	}
 }
 
-impl Rect {
-	fn build_vertices(&self, ctx: &ElementContext) -> (Vec<Vertex>, Vec<u16>) {
-		let vw = ctx.vw / ctx.scale_factor / 2.0;
-		let vh = ctx.vh / ctx.scale_factor / 2.0;
-		let x1 = ctx.bounds.x / vw - 1.0;
-		let x2 = x1 + ctx.bounds.width / vw;
-		let y1 = -ctx.bounds.y / vh + 1.0;
-		let y2 = y1 - ctx.bounds.height / vh;
-		let vertices = vertices(
-			self.color.r,
-			self.color.g,
-			self.color.b,
-			self.color.a, &[
-			(x1, y1),(x1, y2),
-			(x2, y1),(x2, y2),
-		]);
-		let indices = vec![0, 1, 2, 1, 2, 3];
-		(vertices, indices)
-	}
+fn build_rect_vertices(rect: &Rect, ctx: &ElementContext) -> (Vec<Vertex>, Vec<u16>) {
+	let vw = ctx.vw / ctx.scale_factor / 2.0;
+	let vh = ctx.vh / ctx.scale_factor / 2.0;
+	let x1 = ctx.bounds.x / vw - 1.0;
+	let x2 = x1 + ctx.bounds.width / vw;
+	let y1 = -ctx.bounds.y / vh + 1.0;
+	let y2 = y1 - ctx.bounds.height / vh;
+	let vertices = vertices(
+		rect.color.r,
+		rect.color.g,
+		rect.color.b,
+		rect.color.a, &[
+		(x1, y1),(x1, y2),
+		(x2, y1),(x2, y2),
+	]);
+	let indices = vec![0, 1, 2, 1, 2, 3];
+	(vertices, indices)
 }
 
 impl RenderNative for Element {
 	fn render(&self, parent_ctx: &ElementContext, rctx: &mut RenderContext) {
-		let ctx = self.create_context(parent_ctx);
+		let ctx = create_context(self, parent_ctx);
 
 		self.element_impl.render(&ctx, rctx);
 
@@ -310,22 +306,20 @@ impl <T: Component> ComponentWindow<T> {
 	}
 }
 
-impl Element {
-	fn create_context<'a>(&self, parent: &'a ElementContext) -> ElementContext<'a> {
-		let mut bounds = parent.bounds.clone();
-		if let Some(b) = self.element_impl.bounds() {
-			bounds.x += b.x;
-			bounds.y += b.y;
-			bounds.width = b.width;
-			bounds.height = b.height;
-		}
-		ElementContext {
-			parent: Some(parent),
-			scale_factor: parent.scale_factor,
-			vw: parent.vw,
-			vh: parent.vh,
-			bounds,
-		}
+fn create_context<'a>(e: &Element, parent: &'a ElementContext) -> ElementContext<'a> {
+	let mut bounds = parent.bounds.clone();
+	if let Some(b) = e.element_impl.bounds() {
+		bounds.x += b.x;
+		bounds.y += b.y;
+		bounds.width = b.width;
+		bounds.height = b.height;
+	}
+	ElementContext {
+		parent: Some(parent),
+		scale_factor: parent.scale_factor,
+		vw: parent.vw,
+		vh: parent.vh,
+		bounds,
 	}
 }
 

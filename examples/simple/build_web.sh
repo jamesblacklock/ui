@@ -1,3 +1,4 @@
-BUILD_WEB=true wasm-pack build --no-typescript --target=no-modules --features=web --no-default-features
+BUILD_WEB=true cargo build --lib --target=wasm32-unknown-unknown --release
 cd ../..
-cargo run --bin pkg_web -- simple ./examples/simple/pkg/simple_web_bg.wasm ./examples/simple/pkg/simple_web_bg.js
+mkdir -p ./examples/simple/dist
+cargo run --bin pkg_web -- ./target/wasm32-unknown-unknown/release/simple_web.wasm ./examples/simple/dist/simple_web.js

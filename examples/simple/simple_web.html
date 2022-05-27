@@ -1,21 +1,18 @@
 <head><title>hello world</title></head>
 <div id="target"></div>
-<script src="./pkg/simple_web.js"></script>
-<script src="./pkg/simple_web_bg.js"></script>
+<script src="./dist/simple_web.js"></script>
 <script>
 	async function main() {
-		await wasm_bindgen(simple);
-		window.c = wasm_bindgen.simple(document.getElementById("target"), {
+		const Simple = await UI.loadComponent('Simple');
+		window.c = new Simple({
 			x: 100,
 			y: 100,
 			strings: ["string1", "string2"],
 			show: true,
 			text: "O, she hath misused me past the endurance of a block",
-			toggle_show() {
-				window.c.show = !window.c.show;
-				console.log("I received this:", this);
-			}
+			toggle_show() { this.show = !this.show },
 		});
+		c.attachToElement("target");
 	}
 	main();
 </script>

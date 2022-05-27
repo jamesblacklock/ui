@@ -1,5 +1,4 @@
 use winit::window::WindowBuilder;
-use ui;
 
 include!("./dist/simple.rs");
 
@@ -13,6 +12,6 @@ fn main() {
 		text: "O, she hath misused me past the endurance of a block".to_owned(),
 		toggle_show: ui::Callback::from(&|| /*this.show = !this.show*/ { println!("test callback") }),
 	});
-	let window = ui::native::ComponentWindow::new(window_builder, component);
+	let window = ui::ComponentWindow::new(window_builder, component);
 	pollster::block_on(window.run());
 }

@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 use std::fs::File;
-use std::io::Write;
+use std::io::Write as IoWrite;
+use std::fmt::Write as FmtWrite;
+use std::collections::HashMap;
 use quote::{quote, format_ident};
 use convert_case::{Case, Casing};
 use proc_macro2::TokenStream;
@@ -10,6 +12,7 @@ use super::{
 	Type,
 	Ctx,
 	Expr,
+	PropDecl,
 	elements::{
 		Empty,
 		Rect,
@@ -139,108 +142,142 @@ pub fn render<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 
 	let web_code = if web {
 		let interface_struct_name = format_ident!("{}Interface", struct_name);
+		let abi_struct_name = format_ident!("{}Abi", struct_name);
+		let attach_to_element = format_ident!("{}__attach_to_element", struct_name);
+		let render_component = format_ident!("{}__render_component", struct_name);
+		let update_component = format_ident!("{}__update_component", struct_name);
+		let new_component = format_ident!("{}__new_component", struct_name);
+		let drop_component = format_ident!("{}__drop_component", struct_name);
+		let get_props_json = format_ident!("{}__get_props_json", struct_name);
+		let props_json = render_props_json(&component.props);
 		let mut js_field_inits = Vec::new();
 		let mut props = Vec::new();
-		for (name, _decl) in component.props.iter().filter(|(_, decl)| decl.is_pub) {
+		for (name, decl) in component.props.iter().filter(|(_, decl)| decl.is_pub) {
 			let name_ident = format_ident!("{}", name);
-			let setter_name = format_ident!("set_{}", name);
-			let prop = quote!(
-				#[wasm_bindgen::prelude::wasm_bindgen(getter)]
-				pub fn #name_ident(&self) -> wasm_bindgen::JsValue {
-					let target = self.object.take().unwrap();
-					let result = ui::web::ConvertJsValue::js_value(&target.component.#name_ident);
-					self.object.set(Some(target));
-					result
+			let setter_name = format_ident!("{}__set_{}", struct_name, name);
+
+			let getter = match decl.prop_type {
+				Type::Callback => {
+					let call = format_ident!("{}__call_{}", struct_name, name);
+					quote!(
+						#[no_mangle]
+						#[allow(non_snake_case)]
+						pub fn #call(this: #abi_struct_name) {
+							let interface = #interface_struct_name::from_abi(this);
+							interface.component.#name_ident.call();
+							interface.release_into_js();
+						}
+					)
+				},
+				_ => {
+					let getter_name = format_ident!("{}__get_{}", struct_name, name);
+					quote!(
+						#[no_mangle]
+						#[allow(non_snake_case)]
+						pub fn #getter_name(this: #abi_struct_name) -> ui::JsValue {
+							let interface = #interface_struct_name::from_abi(this);
+							let result = ui::ConvertJsValue::as_js_value(&interface.component.#name_ident);
+							interface.release_into_js();
+							return result;
+						}
+					)
+				},
+			};
+
+			props.push(quote!(
+				#getter
+				#[no_mangle]
+				#[allow(non_snake_case)]
+				pub fn #setter_name(this: #abi_struct_name, value: ui::JsValue) {
+					let mut interface = #interface_struct_name::from_abi(this);
+					interface.component.#name_ident = ui::ConvertJsValue::from_js_value(value);
+					interface.release_into_js();
 				}
-				#[wasm_bindgen::prelude::wasm_bindgen(setter)]
-				pub fn #setter_name(&mut self, #name_ident: wasm_bindgen::JsValue) {
-					let mut target = self.object.take().unwrap();
-					target.component.#name_ident = ui::web::ConvertJsValue::from_js_value(#name_ident);
-					self.object.set(Some(target));
-					self.trigger_update();
-				}
-			);
+			));
 
 			js_field_inits.push(quote!(
-				#name_ident: js_sys::Reflect::get(value, &wasm_bindgen::JsValue::from(#name))
-					.map(|e| ui::web::ConvertJsValue::from_js_value(e))
+				#name_ident: value.get_property(#name)
+					.map(|e| ui::ConvertJsValue::from_js_value(e))
 					.unwrap_or_default(),));
-			props.push(prop);
 		}
 
 		quote!(
-			struct Target {
-				component: #struct_name,
-				web_element: ui::web::WebElement,
-				root: ui::Element,
-			}
-			impl Target {
-				fn new(web_element: ui::web::WebElement, component: #struct_name) -> Self {
-					Self {
-						web_element,
-						component,
-						root: ui::Element::root(),
+			#[cfg(target_arch = "wasm32")]
+			mod web {
+				use super::*;
+				#[repr(transparent)]
+				pub struct #abi_struct_name(usize);
+				struct #interface_struct_name {
+					component: #struct_name,
+					web_element: Option<ui::WebElement>,
+					root: ui::Element,
+				}
+				impl #interface_struct_name {
+					fn new(props: ui::JsValue) -> #interface_struct_name {
+						#interface_struct_name {
+							component: #struct_name::new(Props::from(props)),
+							web_element: None,
+							root: ui::Element::root(),
+						}
+					}
+					fn from_abi(abi: #abi_struct_name) -> Box<#interface_struct_name> {
+						unsafe { Box::from_raw(std::mem::transmute(abi.0)) }
+					}
+					fn release_into_js(self: Box<#interface_struct_name>) -> #abi_struct_name {
+						unsafe { #abi_struct_name(std::mem::transmute(Box::leak(self))) }
 					}
 				}
-				fn render(&mut self) {
-					ui::Component::update(&mut self.component, &mut self.root);
-					self.web_element.last_in = None;
-					ui::web::RenderWeb::render(&mut self.root, &mut self.web_element, 0, true);
-				}
-			}
-			#[wasm_bindgen::prelude::wasm_bindgen(inspectable)]
-			#[repr(C)]
-			#[derive(Clone)]
-			pub struct #interface_struct_name {
-				object: std::rc::Rc<std::cell::Cell<Option<Target>>>,
-				animation_frame: i32,
-			}
-			use wasm_bindgen::JsCast;
-			#[wasm_bindgen::prelude::wasm_bindgen]
-			impl #interface_struct_name {
-				pub fn return_inteface(&self) -> #interface_struct_name {
-					#interface_struct_name {
-						object: self.object.clone(),
-						animation_frame: 0,
+				impl Props {
+					pub fn from(value: ui::JsValue) -> Self {
+						Self {
+							#(#js_field_inits)*
+						}
 					}
 				}
-				pub fn render(&mut self) {
-					let mut target = self.object.take().unwrap();
-					target.render();
-					self.object.set(Some(target));
+				#[no_mangle]
+				#[allow(non_snake_case)]
+				pub fn #new_component(props: ui::JsValue) -> #abi_struct_name {
+					Box::new(#interface_struct_name::new(props)).release_into_js()
 				}
-				fn trigger_update(&mut self) {
-					let window = web_sys::window().unwrap();
-					window.cancel_animation_frame(self.animation_frame).unwrap();
-
-					let mut clone = self.clone();
-					self.animation_frame = window
-						.request_animation_frame(
-							wasm_bindgen::prelude::Closure::once_into_js(move || clone.render())
-								.as_ref()
-								.unchecked_ref(),
-						)
-						.unwrap();
+				#[no_mangle]
+				#[allow(non_snake_case)]
+				pub fn #drop_component(this: #abi_struct_name) {
+					std::mem::drop(#interface_struct_name::from_abi(this));
+				}
+				#[no_mangle]
+				#[allow(non_snake_case)]
+				pub fn #attach_to_element(this: #abi_struct_name, element: ui::HtmlNode) {
+					let mut interface = #interface_struct_name::from_abi(this);
+					interface.web_element = Some(ui::WebElement::new(Some(std::rc::Rc::new(element))));
+					interface.release_into_js();
+				}
+				#[no_mangle]
+				#[allow(non_snake_case)]
+				pub fn #render_component(this: #abi_struct_name) {
+					let mut interface = #interface_struct_name::from_abi(this);
+					if let Some(e) = interface.web_element.as_mut() {
+						ui::render_html(&mut interface.root, e);
+					}
+					interface.release_into_js();
+				}
+				#[no_mangle]
+				#[allow(non_snake_case)]
+				pub fn #update_component(this: #abi_struct_name) {
+					use ui::Component;
+					let mut interface = #interface_struct_name::from_abi(this);
+					interface.component.update(&mut interface.root);
+					interface.release_into_js();
+				}
+				#[no_mangle]
+				#[allow(non_snake_case)]
+				pub fn #get_props_json() {
+					let json = #props_json;
+					ui::string_into_js(&json, |ptr, len| unsafe { ui::__send_string(ptr, len) });
 				}
 				#(#props)*
 			}
-			impl Props {
-				pub fn from(value: &wasm_bindgen::JsValue) -> Self {
-					Self {
-						#(#js_field_inits)*
-					}
-				}
-			}
-			impl #struct_name {
-				pub fn attach_to_element(self, e: &web_sys::Node) -> #interface_struct_name {
-					let mut target = Target::new(
-						ui::web::WebElement::new(Some(e.clone())),
-						self
-					);
-					target.render();
-					#interface_struct_name { object: std::rc::Rc::new(std::cell::Cell::new(Some(target))), animation_frame: 0 }
-				}
-			}
+			#[cfg(target_arch = "wasm32")]
+			pub use web::*;
 		)
 	} else {
 		quote!()
@@ -248,13 +285,14 @@ pub fn render<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 
 	let code = quote!(
 		#[allow(unused_variables, dead_code)]
-		mod #mod_name {
-			use super::ui;
-			type This = #struct_name;
+		pub mod #mod_name {
+			// type This = #struct_name;
+			#[derive(Default, Debug)]
 			pub struct #struct_name {
 				#(#pub_fields)*
 				#(#priv_fields)*
 			}
+			#[derive(Default, Debug)]
 			pub struct Props {
 				#(#pub_fields)*
 			}
@@ -280,11 +318,69 @@ pub fn render<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 	ctx.finalize();
 }
 
+fn render_props_json(props: &HashMap<String, PropDecl>) -> String {
+	let mut buf = String::new();
+	write!(buf, "{{").unwrap();
+	let mut it = props.iter().filter(|(_, e)| e.is_pub);
+	if let Some((_, decl)) = it.next() {
+		write!(buf, "\"{}\":", decl.name).unwrap();
+		render_type_json(&mut buf, &decl.prop_type);
+	}
+	for (_, decl) in it {
+		write!(buf, ",\"{}\":", decl.name).unwrap();
+		render_type_json(&mut buf, &decl.prop_type);
+	}
+	write!(buf, "}}").unwrap();
+	buf
+}
+
+fn render_type_json(buf: &mut String, prop_type: &Type) {
+	match prop_type {
+		Type::Object(map) => {
+			write!(buf, "{{").unwrap();
+			let mut it = map.iter();
+			if let Some((name, prop_type)) = it.next() {
+				write!(buf, "\"{}\":", name).unwrap();
+				render_type_json(buf, prop_type);
+			}
+			for (name, prop_type) in it {
+				write!(buf, ",\"{}\":", name).unwrap();
+				render_type_json(buf, prop_type);
+			}
+			write!(buf, "}}").unwrap();
+		}
+		Type::Length => {
+			write!(buf, "\"Length\"").unwrap();
+		}
+		Type::Brush => {
+			write!(buf, "\"Brush\"").unwrap();
+		}
+		Type::Alignment => {
+			write!(buf, "\"Alignment\"").unwrap();
+		}
+		Type::String => {
+			write!(buf, "\"String\"").unwrap();
+		}
+		Type::Boolean => {
+			write!(buf, "\"Boolean\"").unwrap();
+		}
+		Type::Iter(t) => {
+			write!(buf, "[").unwrap();
+			render_type_json(buf, t);
+			write!(buf, "]").unwrap();
+		}
+		Type::Callback => {
+			write!(buf, "\"Callback\"").unwrap();
+		}
+		t => {
+			unimplemented!("rendering data type: {:?}", t);
+		}
+	}
+}
+
 pub struct NativeRenderer {
 	file: File,
 	name: String,
-	// indent: u32,
-	// stack: Vec<HtmlContent>,
 	dir: PathBuf,
 	tempname: PathBuf,
 	index: usize,
@@ -496,7 +592,7 @@ impl RenderNative for Rect {
 		let height = self.height.to_tokens();
 		let background = self.background.to_tokens();
 		quote!(
-			let e_impl = Box::new(
+			let e_impl = ui::ElementImpl::Rect(
 				ui::Rect {
 					bounds: ui::Bounds {
 						x: #x,
@@ -519,7 +615,7 @@ impl RenderNative for Span {
 		let y = self.y.to_tokens();
 		let max_width = self.max_width.to_tokens_optional();
 		quote!(
-			let e_impl = Box::new(
+			let e_impl = ui::ElementImpl::Span(
 				ui::Span {
 					x: #x,
 					y: #y,
@@ -563,7 +659,7 @@ impl RenderNative for Text {
 	fn render(&self, _element_data: ElementData, _ctx: &mut NativeRenderer) -> TokenStream {
 		let content = self.content.to_tokens();
 		quote!(
-			let e_impl = Box::new(
+			let e_impl = ui::ElementImpl::Text(
 				ui::Text {
 					content: #content,
 				}

@@ -1,31 +1,3 @@
-#![feature(try_blocks)]
-
-cfg_if::cfg_if! {
-	if #[cfg(all(feature = "web", feature = "native"))] {
-		pub mod web;
-		pub mod native;
-		pub trait RenderTrait: web::RenderWeb + native::RenderNative {}
-	} else if #[cfg(feature = "web")] {
-		pub mod web;
-		pub trait RenderTrait: web::RenderWeb {}
-	} else if #[cfg(feature = "native")] {
-		pub mod native;
-		pub trait RenderTrait: native::RenderNative {}
-	} else {
-		pub trait RenderTrait {}
-	}
-}
-
-impl <T> RenderTrait for T where T: ElementImpl {}
-
-#[derive(Debug, Clone)]
-pub struct Color {
-	pub r: f32,
-	pub g: f32,
-	pub b: f32,
-	pub a: f32,
-}
-
 #[derive(Debug, Clone)]
 pub struct PxBounds {
 	pub x: f32,
@@ -51,6 +23,14 @@ impl Bounds {
 			height: self.height.to_px(),
 		}
 	}
+}
+
+#[derive(Debug, Clone)]
+pub struct Color {
+	pub r: f32,
+	pub g: f32,
+	pub b: f32,
+	pub a: f32,
 }
 
 #[derive(Debug, Clone)]
@@ -117,9 +97,23 @@ pub trait Component {
 	fn update(&mut self, parent: &mut Element);
 }
 
-pub trait ElementImpl: RenderTrait + std::fmt::Debug {
-	fn bounds(&self) -> Option<PxBounds> {
-		None
+#[derive(Debug)]
+pub enum ElementImpl {
+	Root,
+	Group,
+	Rect(Rect),
+	Span(Span),
+	Text(Text),
+}
+
+impl ElementImpl {
+	pub fn bounds(&self) -> Option<PxBounds> {
+		match self {
+			ElementImpl::Rect(rect) => {
+				Some(rect.bounds.to_px_bounds())
+			},
+			_ => None,
+		}
 	}
 }
 
@@ -129,12 +123,6 @@ pub struct Rect {
 	pub bounds: Bounds,
 }
 
-impl ElementImpl for Rect {
-	fn bounds(&self) -> Option<PxBounds> {
-		Some(self.bounds.to_px_bounds())
-	}
-}
-
 #[derive(Debug)]
 pub struct Span {
 	pub max_width: Option<f32>,
@@ -142,49 +130,38 @@ pub struct Span {
 	pub y: Length,
 }
 
-impl ElementImpl for Span {
-	fn bounds(&self) -> Option<PxBounds> {
-		None
-	}
-}
-
 #[derive(Debug)]
 pub struct Text {
 	pub content: String,
 }
 
-impl ElementImpl for Text {
-	fn bounds(&self) -> Option<PxBounds> {
-		None
-	}
-}
-
-#[derive(Debug)]
-struct Root {}
-impl ElementImpl for Root {}
-
-#[derive(Debug)]
-pub struct Group;
-impl ElementImpl for Group {}
-
 #[derive(Debug)]
 pub struct Element {
-	pub element_impl: Box<dyn ElementImpl>,
+	pub element_impl: ElementImpl,
 	pub children: Vec<Element>,
 	pub show: bool,
 	pub group: bool,
 }
-
 
 use std::cell::Cell;
 
 pub trait Dispatchable {
 	fn call(&self) {}
 	fn clone(&self) -> Box<dyn Dispatchable>;
+	fn debug(&self) -> String;
 }
 
 #[derive(Default)]
-pub struct Callback(Cell<Option<Box<dyn Dispatchable>>>);
+pub struct Callback(pub Cell<Option<Box<dyn Dispatchable>>>);
+
+impl std::fmt::Debug for Callback {
+	fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+		let item = self.0.take();
+		write!(fmt, "Callback({})", item.as_ref().map(|e| e.debug()).unwrap_or_default())?;
+		self.0.set(item);
+		Ok(())
+	}
+}
 
 impl Callback {
 	pub fn call(&self) {
@@ -222,12 +199,15 @@ impl Dispatchable for &'static dyn Fn() {
 	fn clone(&self) -> Box<dyn Dispatchable> {
 		Box::new(*self)
 	}
+	fn debug(&self) -> String {
+		String::from("&'static dyn Fn()")
+	}
 }
 
 impl Element {
 	pub fn root() -> Element {
 		Element {
-			element_impl: Box::new(Root {}),
+			element_impl: ElementImpl::Root,
 			children: Vec::new(),
 			show: true,
 			group: false,
@@ -235,7 +215,7 @@ impl Element {
 	}
 }
 
-pub fn element_in(parent: &mut Element, e: Box<dyn ElementImpl>, i: usize) -> &mut Element {
+pub fn element_in(parent: &mut Element, e: ElementImpl, i: usize) -> &mut Element {
 	if i < parent.children.len() {
 		let element = &mut parent.children[i];
 		element.show = true;
@@ -248,12 +228,13 @@ pub fn element_in(parent: &mut Element, e: Box<dyn ElementImpl>, i: usize) -> &m
 		panic!("this should never happen")
 	}
 }
-pub fn element_out(parent: &mut Element, e: Box<dyn ElementImpl>, i: usize) {
+
+pub fn element_out(parent: &mut Element, e: ElementImpl, i: usize) {
 	element_in(parent, e, i).show = false;
 }
 
 pub fn begin_group(parent: &mut Element, i: usize) -> &mut Element {
-	let mut e = element_in(parent, Box::new(Group), i);
+	let mut e = element_in(parent, ElementImpl::Group, i);
 	e.group = true;
 	e
 }
@@ -263,3 +244,4 @@ pub fn end_group(parent: &mut Element, i: usize) {
 		e.show = false;
 	}
 }
+

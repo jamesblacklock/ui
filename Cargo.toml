@@ -1,10 +1,12 @@
 [workspace]
 members = [
-    "api",
+    "api/all",
+    "api/native",
+    "api/web",
+    "api/base",
     "compiler",
     "pkg_web",
     "examples/simple",
-    # "examples/simple_web",
 ]
 
 resolver="2"

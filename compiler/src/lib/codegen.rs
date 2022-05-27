@@ -28,8 +28,8 @@ use super::{
 	}
 };
 
-fn render_element(e: &Element, ctx: &mut CodeGenCtx) -> TokenStream {
-	let parent = CodeGen::render(e.element_impl.as_ref(), e.data(), ctx);
+fn codegen_element(e: &Element, ctx: &mut CodeGenCtx) -> TokenStream {
+	let parent = CodeGen::generate(e.element_impl.as_ref(), e.data(), ctx);
 
 	let index = ctx.index;
 
@@ -37,10 +37,31 @@ fn render_element(e: &Element, ctx: &mut CodeGenCtx) -> TokenStream {
 	for (i, child)in e.children.iter().enumerate() {
 		ctx.index = i;
 		match child {
-			Content::Element(child) => children.push(render_element(child, ctx)),
+			Content::Element(child) => children.push(codegen_element(child, ctx)),
 			_ => unimplemented!()
 		}
 	}
+
+	let mut events = Vec::new();
+
+	macro_rules! gen_event {
+		($event:ident) => {
+			if e.events.$event.is_set() {
+				let callback = e.events.$event.to_tokens();
+				let event_type = format_ident!("{}", stringify!($event).to_case(Case::UpperCamel));
+				events.push(quote!(
+					ui::handle_event(e, ui::EventType::#event_type, Some(#callback));
+				));
+			}
+		};
+	}
+
+	gen_event!(pointer_click);
+	gen_event!(pointer_press);
+	gen_event!(pointer_release);
+	gen_event!(pointer_move);
+	gen_event!(pointer_in);
+	gen_event!(pointer_out);
 
 	if let Some(repeater) = &e.repeater {
 		let collection = repeater.collection.to_tokens_iter();
@@ -48,6 +69,7 @@ fn render_element(e: &Element, ctx: &mut CodeGenCtx) -> TokenStream {
 			for item in #collection {
 				#parent
 				let e = ui::element_in(parent, e_impl, i);
+				#(#events)*
 				#(
 					let e = {
 						let parent = e;
@@ -83,6 +105,7 @@ fn render_element(e: &Element, ctx: &mut CodeGenCtx) -> TokenStream {
 	} else {
 		let body = quote!(
 			let e = ui::element_in(parent, e_impl, #index);
+			#(#events)*
 			#(
 				let e = {
 					let parent = e;
@@ -122,7 +145,7 @@ pub fn generate<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 	let struct_name = format_ident!("{}", name.clone().to_case(Case::UpperCamel));
 
 	let mut ctx = CodeGenCtx::new(name, path);
-	let code = render_element(&component.root, &mut ctx);
+	let code = codegen_element(&component.root, &mut ctx);
 
 	let mut pub_fields = Vec::new();
 	let mut pub_field_inits = Vec::new();
@@ -210,7 +233,7 @@ pub fn generate<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 				struct #interface_struct_name {
 					component: #struct_name,
 					web_element: Option<ui::WebElement>,
-					root: ui::Element,
+					root: ui::Element<Abi>,
 				}
 				impl #interface_struct_name {
 					fn new(props: ui::JsValue) -> #interface_struct_name {
@@ -287,6 +310,11 @@ pub fn generate<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 		#[allow(unused_variables, dead_code)]
 		pub mod #mod_name {
 			// type This = #struct_name;
+			#[cfg(target_arch = "wasm32")]
+			type Abi = ui::JsValue;
+			#[cfg(not(target_arch = "wasm32"))]
+			type Abi = ui::NoAbi;
+			
 			#[derive(Default, Debug)]
 			pub struct #struct_name {
 				#(#pub_fields)*
@@ -304,8 +332,8 @@ pub fn generate<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 					}
 				}
 			}
-			impl ui::Component for #struct_name {
-				fn update(&mut self, parent: &mut ui::Element) {
+			impl ui::Component<Abi> for #struct_name {
+				fn update(&mut self, parent: &mut ui::Element<Abi>) {
 					#code
 				}
 			}
@@ -495,7 +523,7 @@ impl Type {
 				quote!(ui::Alignment)
 			},
 			Type::Callback => {
-				quote!(ui::Callback)
+				quote!(ui::Callback<Abi>)
 			},
 			Type::Iter(t) => {
 				let t = t.to_tokens();
@@ -577,7 +605,7 @@ impl Value {
 }
 
 pub trait CodeGen {
-	fn render(&self, _element_data: ElementData, _ctx: &mut CodeGenCtx) -> TokenStream {
+	fn generate(&self, _element_data: ElementData, _ctx: &mut CodeGenCtx) -> TokenStream {
 		quote!()
 	}
 }
@@ -585,7 +613,7 @@ pub trait CodeGen {
 impl CodeGen for Empty {}
 
 impl CodeGen for Rect {
-	fn render(&self, _element_data: ElementData, _ctx: &mut CodeGenCtx) -> TokenStream {
+	fn generate(&self, _element_data: ElementData, _ctx: &mut CodeGenCtx) -> TokenStream {
 		let x = self.x.to_tokens();
 		let y = self.y.to_tokens();
 		let width = self.width.to_tokens();
@@ -610,7 +638,7 @@ impl CodeGen for Rect {
 impl CodeGen for Scroll {}
 
 impl CodeGen for Span {
-	fn render(&self, _element_data: ElementData, _ctx: &mut CodeGenCtx) -> TokenStream {
+	fn generate(&self, _element_data: ElementData, _ctx: &mut CodeGenCtx) -> TokenStream {
 		let x = self.x.to_tokens();
 		let y = self.y.to_tokens();
 		let max_width = self.max_width.to_tokens_optional();
@@ -656,7 +684,7 @@ impl CodeGen for Span {
 }
 
 impl CodeGen for Text {
-	fn render(&self, _element_data: ElementData, _ctx: &mut CodeGenCtx) -> TokenStream {
+	fn generate(&self, _element_data: ElementData, _ctx: &mut CodeGenCtx) -> TokenStream {
 		let content = self.content.to_tokens();
 		quote!(
 			let e_impl = ui::ElementImpl::Text(

@@ -1,6 +1,9 @@
-use std::cell::{Cell};
-use std::rc::Rc;
-use std::alloc::{alloc, dealloc, Layout};
+use std::{
+	collections::HashMap,
+	cell::{Cell},
+	rc::Rc,
+	alloc::{alloc, dealloc, Layout},
+};
 
 pub use ui_base::*;
 
@@ -16,6 +19,8 @@ extern "C" {
 	fn __remove(node: HtmlNode);
 	fn __set_text_content(node: HtmlNode, ptr: *const u8, len: usize);
 	fn __set_style(node: HtmlNode, pptr: *const u8, plen: usize, vptr: *const u8, vlen: usize);
+	fn __add_event_listener(node: HtmlNode, ptr: *const u8, len: usize, callback: JsValue);
+	fn __remove_event_listener(node: HtmlNode, ptr: *const u8, len: usize, callback: JsValue);
 	fn __heap_object_as_bool(object: JsValue) -> isize;
 	fn __heap_object_stage_string(object: JsValue) -> isize;
 	fn __heap_object_load_string(dest: *const u8);
@@ -74,6 +79,15 @@ impl HtmlNode {
 				unsafe { __set_style(HtmlNode(self.0), pp, plen, vp, vlen) }
 			});
 		});
+	}
+	pub fn add_event_listener(&self, event: &str, callback: Callback) {
+		let js_value = callback.as_js_value();
+		string_into_js(&event, |p, len| unsafe { __add_event_listener(HtmlNode(self.0), p, len, js_value) });
+	}
+	pub fn remove_event_listener(&self, event: &str, callback: &Callback) {
+		let js_value = callback.as_js_value();
+		string_into_js(&event, |p, len| unsafe { __remove_event_listener(HtmlNode(self.0), p, len, JsValue(js_value.0)) });
+		std::mem::drop(js_value);
 	}
 }
 
@@ -218,6 +232,15 @@ impl Drop for JsValue {
 	}
 }
 
+impl HostAbi for JsValue {
+	fn call(&self) {
+		self.call_function()
+	}
+}
+
+type Element = ui_base::Element<JsValue>;
+type Callback = ui_base::Callback<JsValue>;
+
 #[no_mangle]
 pub fn render_html(root: &mut Element, web_element: &mut WebElement) {
 	RenderWeb::render(root, web_element, 0, true);
@@ -237,29 +260,21 @@ pub trait ConvertJsValue {
 	fn as_js_value(&self) -> JsValue;
 }
 
-#[derive(Clone, Debug)]
-struct JsCallback(Rc<JsValue>);
-
-impl Dispatchable for JsCallback {
-	fn call(&self) {
-		self.0.call_function();
-	}
-	fn clone(&self) -> Box<dyn Dispatchable> {
-		Box::new(Clone::clone(self))
-	}
-	fn debug(&self) -> String {
-		format!("{:?}", self.0)
-	}
-}
-
 impl ConvertJsValue for Callback {
 	fn as_js_value(&self) -> JsValue {
-		unimplemented!()
+		let f = self.0.take();
+		let result = match f {
+			CallbackInner::Empty => unimplemented!(),
+			CallbackInner::Native(_) => unimplemented!(),
+			CallbackInner::HostAbi(ref js_value) => JsValue(js_value.0),
+		};
+		self.0.set(f);
+		result
 	}
 
 	fn from_js_value(value: JsValue) -> Callback {
 		if value.is_function() {
-			Callback(Cell::new(Some(Box::new(JsCallback(Rc::new(value))))))
+			Callback(Rc::new(Cell::new(CallbackInner::HostAbi(value))))
 		} else {
 			Callback::default()
 		}
@@ -355,6 +370,7 @@ impl <T: ConvertJsValue> ConvertJsValue for Iterable<T> {
 #[derive(Debug)]
 pub struct WebElement {
 	pub node: Option<Rc<HtmlNode>>,
+	pub events: HashMap<String, Callback>,
 	pub active_group: Option<usize>,
 	pub children: Vec<WebElement>,
 	pub is_in: bool,
@@ -365,6 +381,7 @@ impl WebElement {
 	pub fn new(e: Option<Rc<HtmlNode>>) -> WebElement {
 		WebElement {
 			node: e,
+			events: HashMap::new(),
 			active_group: None,
 			children: Vec::new(),
 			is_in: false,
@@ -382,6 +399,17 @@ pub trait RenderWeb {
 impl RenderWeb for Element {
 	fn render<'a>(&mut self, parent: &'a mut WebElement, i: usize, _show: bool) -> Option<&'a mut WebElement> {
 		if let Some(mut parent) = RenderWeb::render(&mut self.element_impl, parent, i, self.show) {
+			if let Some(callback) = self.events.pointer_click.as_ref() {
+				let node = parent.node.as_ref().unwrap();
+				let current_callback = parent.events.get("click");
+				if current_callback.map(|c| c != callback).unwrap_or(true) {
+					if let Some(current_callback) = current_callback {
+						node.remove_event_listener("click", &current_callback);
+					}
+					parent.events.insert("click".to_owned(), callback.clone());
+					node.add_event_listener("click", callback.clone());
+				}
+			}
 			if self.group {
 				group_in(parent, i);
 			}

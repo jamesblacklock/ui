@@ -17,7 +17,7 @@ pub struct FloatBounds {
 	pub height: f32,
 }
 
-pub struct ComponentWindow<T: Component + 'static> {
+pub struct ComponentWindow<T: Component<NoAbi> + 'static> {
 	window: Window,
 	background: wgpu::Color,
 	surface: wgpu::Surface,
@@ -25,6 +25,7 @@ pub struct ComponentWindow<T: Component + 'static> {
 	instance: wgpu::Instance,
 	component: T,
 	root: Element,
+	pointer_position: Option<(f32, f32)>,
 }
 
 pub struct RenderContext<'a> {
@@ -175,6 +176,8 @@ fn build_rect_vertices(rect: &Rect, ctx: &ElementContext) -> (Vec<Vertex>, Vec<u
 	(vertices, indices)
 }
 
+type Element = ui_base::Element<NoAbi>;
+
 impl RenderNative for Element {
 	fn render(&self, parent_ctx: &ElementContext, rctx: &mut RenderContext) {
 		let ctx = create_context(self, parent_ctx);
@@ -189,7 +192,7 @@ impl RenderNative for Element {
 	}
 }
 
-impl <T: Component> ComponentWindow<T> {
+impl <T: Component<NoAbi>> ComponentWindow<T> {
 	pub fn new(window_builder: winit::window::WindowBuilder, component: T) -> Self {
 		let event_loop = EventLoop::new();
 		let window = window_builder.build(&event_loop).unwrap();
@@ -205,6 +208,7 @@ impl <T: Component> ComponentWindow<T> {
 			instance,
 			component,
 			root: Element::root(),
+			pointer_position: None,
 		}
 	}
 
@@ -248,6 +252,22 @@ impl <T: Component> ComponentWindow<T> {
 			);
 
 			match event {
+				Event::WindowEvent { event: WindowEvent::CursorMoved { position, .. }, .. } => {
+					*self.pointer_position.as_mut().unwrap() =
+						(position.x as f32 / ctx.scale_factor, position.y as f32 / ctx.scale_factor);
+					println!("{:?}", self.pointer_position);
+				},
+				Event::WindowEvent { event: WindowEvent::CursorEntered {..}, .. } => {
+					self.pointer_position = Some((f32::INFINITY, f32::INFINITY));
+				},
+				Event::WindowEvent { event: WindowEvent::CursorLeft {..}, .. } => {
+					self.pointer_position = None;
+				},
+				Event::WindowEvent { event: WindowEvent::MouseInput { state, button, .. }, .. } => {
+					// state: ElementState::Pressed/Released
+					// button: MouseButton::Left/Right/Middle/Other(n)
+					println!("{state:?} {button:?}");
+				},
 				Event::RedrawRequested(_) => {
 					self.component.update(&mut self.root);
 

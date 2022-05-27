@@ -627,7 +627,14 @@ impl Rect {
 		ConstructedElementImpl::new(
 			Box::new(data),
 			build_elements(scope, &parse_tree.children),
-			Default::default(),
+			EventsSpec {
+				pointer_click: true,
+				pointer_out: true,
+				pointer_in: true,
+				pointer_press: true,
+				pointer_release: true,
+				..Default::default()
+			},
 		)
 	}
 }

@@ -52,9 +52,19 @@
 					uiPriv.getHeapNode(node).textContent = uiPriv.getStringFromWasm(ptr, len);
 				},
 				__set_style(node, pptr, plen, vptr, vlen) {
-					const prop = uiPriv.getStringFromWasm(pptr, plen)
-					const value = uiPriv.getStringFromWasm(vptr, vlen)
+					const prop = uiPriv.getStringFromWasm(pptr, plen);
+					const value = uiPriv.getStringFromWasm(vptr, vlen);
 					uiPriv.getHeapNode(node).style[prop] = value;
+				},
+				__add_event_listener(node, ptr, len, callback) {
+					const event = uiPriv.getStringFromWasm(ptr, len);
+					callback = uiPriv.getHeapCallback(callback);
+					uiPriv.getHeapNode(node).addEventListener(event, callback);
+				},
+				__remove_event_listener(node, ptr, len, callback) {
+					const event = uiPriv.getStringFromWasm(ptr, len);
+					callback = uiPriv.getHeapCallback(callback);
+					uiPriv.getHeapNode(node).removeEventListener(event, callback);
 				},
 				__heap_object_as_bool(ptr) {
 					const object = uiPriv.getHeapObject(ptr);
@@ -161,13 +171,6 @@
 			},
 		}
 
-		class Callback {
-			constructor(component, key) {
-				this.component = component;
-				this.key = key;
-			}
-		}
-
 		class Iterable {
 			constructor(component, key, type) {
 				this.component = component;
@@ -177,11 +180,11 @@
 		}
 
 		const uiPriv = {
-			Callback,
 			Iterable,
 
 			components: {},
 			heap: [null], // 0 is the null pointer; we don't want anything at index 0
+			freeHeapIndices: [],
 			wasm: WebAssembly.instantiateStreaming(fetch(wasm), wasm_imports),
 			decoder: new TextDecoder('utf-8', { ignoreBOM: true, fatal: true }),
 			encoder: new TextEncoder('utf-8'),
@@ -191,10 +194,10 @@
 					return "";
 				}
 				const buffer = new Uint8Array(this.memory.buffer).subarray(ptr, ptr + len);
-				return uiPriv.decoder.decode(buffer);
+				return this.decoder.decode(buffer);
 			},
 			stageString(string) {
-				this.stagedString = uiPriv.encoder.encode(string);
+				this.stagedString = this.encoder.encode(string);
 				return this.stagedString.length;
 			},
 			putStagedStringIntoWasm(ptr) {
@@ -203,25 +206,39 @@
 				delete this.stagedString;
 			},
 			addToHeap(item) {
-				uiPriv.heap.push(item);
-				return uiPriv.heap.length - 1;
+				let ptr = this.freeHeapIndices.pop();
+				if(ptr == null) {
+					ptr = this.heap.length;
+					this.heap.push(item);
+				} else {
+					this.heap[ptr] = item;
+				}
+				return ptr;
 			},
 			dropFromHeap(ptr) {
-				let result = uiPriv.heap[ptr];
-				delete uiPriv.heap[ptr];
+				let result = this.heap[ptr];
+				delete this.heap[ptr];
+				this.freeHeapIndices.push(ptr);
 				return result;
 			},
 			getHeapObject(ptr) {
-				return uiPriv.heap[ptr];
+				return this.heap[ptr];
 			},
 			getHeapNode(ptr, optional) {
-				let node = uiPriv.heap[ptr];
+				let node = this.heap[ptr];
 				if(optional && node == null) {
 					return null;
 				} else if(!(node instanceof Node)) {
 					throw new Error(`"${node}" is not a node`);
 				}
 				return node;
+			},
+			getHeapCallback(ptr) {
+				let f = this.heap[ptr];
+				if(!(f instanceof Function)) {
+					throw new Error(`"${f}" is not a function`);
+				}
+				return f;
 			},
 			sanitizeProps(props, propsDef, ctx) {
 				let sanitized = {};
@@ -255,7 +272,7 @@
 				} else if(type == 'Callback') {
 					return () => this.dispatch(component, name);
 				}
-				return uiPriv.dropFromHeap(getter(component.ptr));
+				return this.dropFromHeap(getter(component.ptr));
 			},
 			setProperty(component, setter, value, type) {
 				if(type == 'Callback') {
@@ -263,7 +280,10 @@
 				}
 				setter(component.ptr, this.addToHeap(value));
 				cancelAnimationFrame(component.animationFrame);
-				component.animationFrame = requestAnimationFrame(() => component.render());
+				component.animationFrame = requestAnimationFrame(() => {
+					delete component.animationFrame;
+					component.render();
+				});
 			},
 			dispatch(component, name) {
 				console.log('dispatch:', name);

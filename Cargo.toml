@@ -1,9 +1,9 @@
 [workspace]
 members = [
-    "api/all",
+    "api/base",
     "api/native",
     "api/web",
-    "api/base",
+    "api/all",
     "compiler",
     "pkg_web",
     "examples/simple",

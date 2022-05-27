@@ -3,8 +3,7 @@ use std::collections::HashMap;
 use maplit::hashmap;
 
 use super::{
-	web::{RenderWeb, WebRenderer, HtmlContent},
-	native::{RenderNative},
+	codegen::{CodeGen},
 	parser::Element as ParserElement,
 	parser::Content as ParserContent,
 	parser::Component as ParserComponent,
@@ -77,7 +76,7 @@ impl ConstructedElementImpl {
 
 pub type Constructor = fn(&mut Module, &ParserElement) -> ConstructedElementImpl;
 
-pub trait ElementImpl: Debug + RenderWeb + RenderNative {
+pub trait ElementImpl: Debug + CodeGen {
 	fn set_property(&mut self, _k: &String, _v: &Value) -> SetPropertyResult { SetPropertyResult::Ignore }
 	fn property_types(&self) -> HashMap<String, Type> { HashMap::new() }
 }
@@ -468,10 +467,6 @@ impl Element {
 			added_properties,
 			events,
 		})
-	}
-
-	pub fn render_web(&self, ctx: &mut WebRenderer) -> Option<HtmlContent> {
-		RenderWeb::render(self.element_impl.as_ref(), self.data(), ctx)
 	}
 
 	pub fn data(&self) -> ElementData {

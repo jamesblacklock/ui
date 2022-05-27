@@ -6,8 +6,7 @@ use std::collections::HashMap;
 
 mod parser;
 mod elements;
-mod web;
-mod native;
+mod codegen;
 
 use elements as el;
 use elements::{Component, ComponentInstance};
@@ -352,7 +351,7 @@ fn build_impl<'a>(
 		None
 	};
 
-	native::render(&component, script, &parse_tree.name, dir, web);
+	codegen::generate(&component, script, &parse_tree.name, dir, web);
 
 	parse_tree.status.set(CompileStatus::Done);
 	components.insert(path.clone(), component);

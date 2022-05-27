@@ -1,8 +1,0 @@
-row.stretch {
-    background: #fff;
-    padding: 8px;
-    // row.stretch {
-
-    // }
-    span { align: .center; (name) }
-}

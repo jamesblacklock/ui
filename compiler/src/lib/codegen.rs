@@ -28,8 +28,8 @@ use super::{
 	}
 };
 
-fn render_element(e: &Element, ctx: &mut NativeRenderer) -> TokenStream {
-	let parent = RenderNative::render(e.element_impl.as_ref(), e.data(), ctx);
+fn render_element(e: &Element, ctx: &mut CodeGenCtx) -> TokenStream {
+	let parent = CodeGen::render(e.element_impl.as_ref(), e.data(), ctx);
 
 	let index = ctx.index;
 
@@ -110,7 +110,7 @@ fn render_element(e: &Element, ctx: &mut NativeRenderer) -> TokenStream {
 	}
 }
 
-pub fn render<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
+pub fn generate<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 	component: &Component,
 	_script: Option<S1>,
 	name: S2,
@@ -121,7 +121,7 @@ pub fn render<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 	let mod_name = format_ident!("{}", name.clone().to_case(Case::Snake));
 	let struct_name = format_ident!("{}", name.clone().to_case(Case::UpperCamel));
 
-	let mut ctx = NativeRenderer::new(name, path);
+	let mut ctx = CodeGenCtx::new(name, path);
 	let code = render_element(&component.root, &mut ctx);
 
 	let mut pub_fields = Vec::new();
@@ -149,7 +149,7 @@ pub fn render<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 		let new_component = format_ident!("{}__new_component", struct_name);
 		let drop_component = format_ident!("{}__drop_component", struct_name);
 		let get_props_json = format_ident!("{}__get_props_json", struct_name);
-		let props_json = render_props_json(&component.props);
+		let props_json = gen_props_json(&component.props);
 		let mut js_field_inits = Vec::new();
 		let mut props = Vec::new();
 		for (name, decl) in component.props.iter().filter(|(_, decl)| decl.is_pub) {
@@ -318,34 +318,34 @@ pub fn render<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 	ctx.finalize();
 }
 
-fn render_props_json(props: &HashMap<String, PropDecl>) -> String {
+fn gen_props_json(props: &HashMap<String, PropDecl>) -> String {
 	let mut buf = String::new();
 	write!(buf, "{{").unwrap();
 	let mut it = props.iter().filter(|(_, e)| e.is_pub);
 	if let Some((_, decl)) = it.next() {
 		write!(buf, "\"{}\":", decl.name).unwrap();
-		render_type_json(&mut buf, &decl.prop_type);
+		gen_type_json(&mut buf, &decl.prop_type);
 	}
 	for (_, decl) in it {
 		write!(buf, ",\"{}\":", decl.name).unwrap();
-		render_type_json(&mut buf, &decl.prop_type);
+		gen_type_json(&mut buf, &decl.prop_type);
 	}
 	write!(buf, "}}").unwrap();
 	buf
 }
 
-fn render_type_json(buf: &mut String, prop_type: &Type) {
+fn gen_type_json(buf: &mut String, prop_type: &Type) {
 	match prop_type {
 		Type::Object(map) => {
 			write!(buf, "{{").unwrap();
 			let mut it = map.iter();
 			if let Some((name, prop_type)) = it.next() {
 				write!(buf, "\"{}\":", name).unwrap();
-				render_type_json(buf, prop_type);
+				gen_type_json(buf, prop_type);
 			}
 			for (name, prop_type) in it {
 				write!(buf, ",\"{}\":", name).unwrap();
-				render_type_json(buf, prop_type);
+				gen_type_json(buf, prop_type);
 			}
 			write!(buf, "}}").unwrap();
 		}
@@ -366,7 +366,7 @@ fn render_type_json(buf: &mut String, prop_type: &Type) {
 		}
 		Type::Iter(t) => {
 			write!(buf, "[").unwrap();
-			render_type_json(buf, t);
+			gen_type_json(buf, t);
 			write!(buf, "]").unwrap();
 		}
 		Type::Callback => {
@@ -378,7 +378,7 @@ fn render_type_json(buf: &mut String, prop_type: &Type) {
 	}
 }
 
-pub struct NativeRenderer {
+pub struct CodeGenCtx {
 	file: File,
 	name: String,
 	dir: PathBuf,
@@ -386,8 +386,8 @@ pub struct NativeRenderer {
 	index: usize,
 }
 
-impl NativeRenderer {
-	pub fn new<S: Into<String>, P: Into<PathBuf>>(name: S, dir: P) -> NativeRenderer {
+impl CodeGenCtx {
+	pub fn new<S: Into<String>, P: Into<PathBuf>>(name: S, dir: P) -> CodeGenCtx {
 		let name = name.into();
 		let dir = dir.into();
 		std::fs::create_dir_all(&dir).unwrap();
@@ -398,7 +398,7 @@ impl NativeRenderer {
 			.as_millis();
 		tempname.push(format!("{}.rs.{}", name, timestamp));
 		let file = File::create(&tempname).unwrap();
-		NativeRenderer {
+		CodeGenCtx {
 			file,
 			name,
 			index: 0,
@@ -576,16 +576,16 @@ impl Value {
 	}
 }
 
-pub trait RenderNative {
-	fn render(&self, _element_data: ElementData, _ctx: &mut NativeRenderer) -> TokenStream {
+pub trait CodeGen {
+	fn render(&self, _element_data: ElementData, _ctx: &mut CodeGenCtx) -> TokenStream {
 		quote!()
 	}
 }
 
-impl RenderNative for Empty {}
+impl CodeGen for Empty {}
 
-impl RenderNative for Rect {
-	fn render(&self, _element_data: ElementData, _ctx: &mut NativeRenderer) -> TokenStream {
+impl CodeGen for Rect {
+	fn render(&self, _element_data: ElementData, _ctx: &mut CodeGenCtx) -> TokenStream {
 		let x = self.x.to_tokens();
 		let y = self.y.to_tokens();
 		let width = self.width.to_tokens();
@@ -607,10 +607,10 @@ impl RenderNative for Rect {
 	}
 }
 
-impl RenderNative for Scroll {}
+impl CodeGen for Scroll {}
 
-impl RenderNative for Span {
-	fn render(&self, _element_data: ElementData, _ctx: &mut NativeRenderer) -> TokenStream {
+impl CodeGen for Span {
+	fn render(&self, _element_data: ElementData, _ctx: &mut CodeGenCtx) -> TokenStream {
 		let x = self.x.to_tokens();
 		let y = self.y.to_tokens();
 		let max_width = self.max_width.to_tokens_optional();
@@ -655,8 +655,8 @@ impl RenderNative for Span {
 	}
 }
 
-impl RenderNative for Text {
-	fn render(&self, _element_data: ElementData, _ctx: &mut NativeRenderer) -> TokenStream {
+impl CodeGen for Text {
+	fn render(&self, _element_data: ElementData, _ctx: &mut CodeGenCtx) -> TokenStream {
 		let content = self.content.to_tokens();
 		quote!(
 			let e_impl = ui::ElementImpl::Text(
@@ -668,6 +668,6 @@ impl RenderNative for Text {
 	}
 }
 
-impl RenderNative for ComponentInstance {}
+impl CodeGen for ComponentInstance {}
 
-impl RenderNative for Layout {}
+impl CodeGen for Layout {}

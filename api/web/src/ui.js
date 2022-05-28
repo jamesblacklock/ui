@@ -17,15 +17,15 @@
 				__send_f32(value) {
 					return uiPriv.addToHeap(value);
 				},
-				__send_bound_callback(ptr) {
-					return uiPriv.addToHeap(uiPriv.makeBoundCallback(ptr));
+				__new_array() {
+					return uiPriv.addToHeap([]);
 				},
-				__load_bound_callback(ptr) {
-					f = uiPriv.getHeapObject(ptr);
-					if(f?.__ptr?.constructor != Number) {
-						throw new Error(`expected pointer, found '${ptr}'`)
+				__array_push(ptr, vptr) {
+					const arr = uiPriv.getHeapObject(ptr);
+					if(arr?.constructor != Array) {
+						throw new Error(`expected Array, found '${arr}'`)
 					}
-					return f.__ptr;
+					arr.push(uiPriv.getHeapObject(vptr));
 				},
 				__console_log(ptr, len) {
 					const message = uiPriv.getStringFromWasm(ptr, len);
@@ -172,6 +172,8 @@
 			String(value) {
 				if(value?.constructor === String) {
 					return value;
+				} else if(value?.constructor === Number) {
+					return String(value);
 				}
 				return null;
 			},
@@ -187,10 +189,29 @@
 		}
 
 		class Iterable {
-			constructor(component, key, type) {
+			constructor(component, exports, key, baseType) {
+				const name = component.constructor.name
 				this.component = component;
+				this.getter = getComponentExport(name, `${name}__get_${key}`, exports);
+				this._getIndex = getComponentExport(name, `${name}__get_index_${key}`, exports);
+				this._setIndex = getComponentExport(name, `${name}__set_index_${key}`, exports);
 				this.key = key;
-				this.type = type;
+				this.baseType = baseType;
+			}
+			getIndex(index) {
+				return uiPriv.dropFromHeap(this._getIndex(this.component.ptr, index|0));
+			}
+			setIndex(index, value) {
+				value = uiPriv.sanitize(value, this.baseType, this.component);
+				if(value == null) {
+					return false;
+				}
+				this._setIndex(this.component.ptr, index|0, uiPriv.addToHeap(value));
+				this.component.triggerUpdate();
+				return true;
+			}
+			toJSON() {
+				return uiPriv.dropFromHeap(this.getter(this.component.ptr));
 			}
 		}
 
@@ -218,11 +239,6 @@
 				const buffer = new Uint8Array(this.memory.buffer).subarray(ptr, ptr + this.stagedString.length);
 				buffer.set(this.stagedString);
 				delete this.stagedString;
-			},
-			makeBoundCallback(ptr) {
-				let f = () => this.__dispatch_bound_callback(ptr);
-				f.__ptr = ptr;
-				return f;
 			},
 			addToHeap(item) {
 				if(item == null) {
@@ -271,20 +287,10 @@
 			sanitizeProps(props, propsDef, ctx) {
 				let sanitized = {};
 				for(let key in propsDef) {
-					let result = null;
-					if(propsDef[key] instanceof Array) {
-						if(props[key] instanceof Array) {
-							result = props[key]
-								.map(e => this.sanitize(e, propsDef[key][0], ctx))
-								.filter(e => e != null);
-						} else {
-							result = null;
-						}
-					} else if(propsDef[key] instanceof Object) {
-						throw new Error('unimplemented!');
-					} else if(propsDef[key] != null) {
-						result = this.sanitize(props[key], propsDef[key], ctx);
+					if(props[key] == null) {
+						continue;
 					}
+					result = this.sanitize(props[key], propsDef[key], ctx);
 					if(result != null) {
 						sanitized[key] = result;
 					}
@@ -292,25 +298,59 @@
 				return sanitized;
 			},
 			sanitize(value, type, ctx) {
+				if(type instanceof Array) {
+					if(value instanceof Array) {
+						return value
+							.map(e => this.sanitize(e, type[0], ctx))
+							.filter(e => e != null);
+					} else if(value?.constructor == Number && this.sanitize(value, type[0], ctx) != null) {
+						return value;
+					} else {
+						return null;
+					}
+				} else if(type instanceof Object) {
+					throw new Error('unimplemented!');
+				}
 				return TYPE_SANITIZERS[type]?.(value, ctx);
 			},
 			getProperty(component, getter, name, type) {
-				if(type instanceof Array) {
-					return new Iterable(component, name, type[0]);
-				}
 				return this.dropFromHeap(getter(component.ptr));
 			},
 			setProperty(component, setter, value, type) {
-				if(type == 'Callback') {
-					value = value.bind(component);
+				value = this.sanitize(value, type, component);
+				if(value == null) {
+					return;
 				}
 				setter(component.ptr, this.addToHeap(value));
-				cancelAnimationFrame(component.animationFrame);
-				component.animationFrame = requestAnimationFrame(() => {
-					delete component.animationFrame;
-					component.render();
-				});
+				component.triggerUpdate();
 			},
+			iterable(component, exports, name, baseType) {
+				return new Proxy(new Iterable(component, exports, name, baseType), {
+					get(target, prop) {
+						const index = parseInt(prop);
+						if(index == Number(prop)) {
+							return target.getIndex(index);
+						} else {
+							return target[prop];
+						}
+					},
+					set(target, prop, value) {
+						const index = parseInt(prop);
+						if(index == Number(prop)) {
+							value = uiPriv.sanitize(value, target.baseType, target.component);
+							return target.setIndex(index, value);
+						}
+						return false;
+					},
+				})
+			},
+		}
+
+		function getComponentExport(name, exportName, exports) {
+			if(!(exports[exportName] instanceof Function)) {
+				throw new Error(`"${name}" is not a valid component (missing export: "${exportName}")`);
+			}
+			return exports[exportName]
 		}
 
 		const UI = {
@@ -321,19 +361,12 @@
 
 				const wasm = await uiPriv.wasm;
 
-				function getExport(exportName) {
-					if(!(wasm.instance.exports[exportName] instanceof Function)) {
-						throw new Error(`"${name}" is not a valid component`);
-					}
-					return wasm.instance.exports[exportName]
-				}
-
 				const componentPriv = {
-					__attach_to_element: getExport(`${name}__attach_to_element`),
-					__render_component:  getExport(`${name}__render_component`),
-					__update_component:  getExport(`${name}__update_component`),
-					__new_component:     getExport(`${name}__new_component`),
-					__get_props_json:    getExport(`${name}__get_props_json`),
+					__attach_to_element: getComponentExport(name, `${name}__attach_to_element`, wasm.instance.exports),
+					__render_component:  getComponentExport(name, `${name}__render_component`, wasm.instance.exports),
+					__update_component:  getComponentExport(name, `${name}__update_component`, wasm.instance.exports),
+					__new_component:     getComponentExport(name, `${name}__new_component`, wasm.instance.exports),
+					__get_props_json:    getComponentExport(name, `${name}__get_props_json`, wasm.instance.exports),
 				};
 				
 				let propsDef;
@@ -352,6 +385,19 @@
 					Object.defineProperty(this, 'ptr', { value: ptr });
 				};
 				Class.prototype.propsDef = propsDef;
+				Class.prototype.toJSON = function() {
+					const result = {};
+					for(key in propsDef) {
+						if(propsDef[key] == 'Callback') {
+							continue;
+						} else if(this[key] instanceof Object) {
+							result[key] = this[key].toJSON();
+						} else {
+							result[key] = this[key];
+						}
+					}
+					return result;
+				}
 				Class.prototype.attachToElement = function(element) {
 					if(typeof element == 'string') {
 						element = d.getElementById(element);
@@ -368,21 +414,35 @@
 					componentPriv.__update_component(this.ptr);
 					componentPriv.__render_component(this.ptr);
 				};
+				Class.prototype.triggerUpdate = function() {
+					cancelAnimationFrame(this.animationFrame);
+					this.animationFrame = requestAnimationFrame(() => {
+						delete this.animationFrame;
+						this.render();
+					});
+				};
 				
 				for(let key in propsDef) {
 					let get;
 					if(propsDef[key] == 'Callback') {
-						let getter = getExport(`${name}__call_${key}`);
+						let getter = getComponentExport(name, `${name}__call_${key}`, wasm.instance.exports);
 						get = function() {
 							return () => getter(this.ptr);
 						}
 					} else {
-						let getter = getExport(`${name}__get_${key}`);
-						get = function() {
-							return uiPriv.getProperty(this, getter, key, type);
+						let getter = getComponentExport(name, `${name}__get_${key}`, wasm.instance.exports);
+						if(propsDef[key] instanceof Array) {
+							get = function() {
+								return uiPriv.iterable(this, wasm.instance.exports, key, type[0]);
+							}
+						} else {
+							get = function() {
+								return uiPriv.getProperty(this, getter, key, type);
+							}
 						}
 					}
-					let setter = getExport(`${name}__set_${key}`);
+
+					let setter = getComponentExport(name, `${name}__set_${key}`, wasm.instance.exports);
 					let type = propsDef[key];
 					Object.defineProperty(Class.prototype, key, {
 						enumerable: true,

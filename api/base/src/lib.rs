@@ -75,10 +75,20 @@ impl <T> Default for Iterable<T> {
 	}
 }
 
-impl <T> Iterable<T> {
+impl <T: Default> Iterable<T> {
 	pub fn from<U: Clone + Into<T>, A: AsRef<[U]>>(array: A) -> Self {
 		let vector = array.as_ref().iter().map(|e| e.clone().into()).collect();
 		Iterable::Array(vector)
+	}
+	pub fn set_index(&mut self, i: usize, value: T) {
+		match self {
+			Iterable::Int(_) => {},
+			Iterable::Array(a) => {
+				if i < a.len() {
+					a[i] = value;
+				}
+			}
+		}
 	}
 }
 
@@ -89,6 +99,12 @@ impl Iterable<String> {
 			Iterable::Array(a) => Box::new(a.iter().cloned())
 		}
 	}
+	pub fn get_index(&self, i: usize) -> String {
+		match self {
+			Iterable::Int(n) => if (i as i32) < *n { (i as i32).to_string() } else { 0.to_string() },
+			Iterable::Array(a) => a.get(i).map(|e| e.clone()).unwrap_or_default(),
+		}
+	}
 }
 
 impl Iterable<i32> {
@@ -96,6 +112,12 @@ impl Iterable<i32> {
 		match self {
 			Iterable::Int(n) => Box::new(0..*n),
 			Iterable::Array(a) => Box::new(a.iter().copied())
+		}
+	}
+	pub fn get_index(&self, i: usize) -> i32 {
+		match self {
+			Iterable::Int(n) => if (i as i32) < *n { i as i32 } else { 0 },
+			Iterable::Array(a) => a.get(i).map(|e| e.clone()).unwrap_or_default(),
 		}
 	}
 }

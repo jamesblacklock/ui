@@ -33,8 +33,8 @@ extern "C" {
 	fn __heap_object_drop(object: JsValue);
 	fn __send_bool(value: bool) -> JsValue;
 	fn __send_f32(value: f32) -> JsValue;
-	fn __send_bound_callback(ptr: usize) -> JsValue;
-	fn __load_bound_callback(value: JsValue) -> usize;
+	fn __new_array() -> JsValue;
+	fn __array_push(object: JsValue, value: JsValue);
 	pub fn __send_string(ptr: *const u8, len: usize) -> JsValue;
 }
 
@@ -160,6 +160,9 @@ impl std::iter::Iterator for JsArrayIter {
 }
 
 impl JsValue {
+	pub fn null() -> JsValue {
+		JsValue(0)
+	}
 	pub fn as_bool(&self) -> Option<bool> {
 		let result = unsafe { __heap_object_as_bool(JsValue(self.0)) };
 		if result == 1 {
@@ -212,6 +215,12 @@ impl JsValue {
 		} else {
 			None
 		}
+	}
+	pub fn new_array() -> JsValue {
+		unsafe { __new_array() }
+	}
+	pub fn array_push(&self, value: JsValue) {
+		unsafe { __array_push(JsValue(self.0), JsValue(value.0)) }
 	}
 	pub fn get_property<S: AsRef<str>>(&self, key: S) -> Option<JsValue> {
 		let result = string_into_js(&key, |p, len| unsafe { __heap_object_get_property(JsValue(self.0), p, len) });
@@ -342,19 +351,17 @@ impl FromJsValue for i32 {
 	}
 }
 
-impl <T: AsJsValue> AsJsValue for Iterable<T> {
+impl <T: AsJsValue + std::fmt::Debug> AsJsValue for Iterable<T> {
 	fn as_js_value(&self) -> JsValue {
-		// match self {
-		// 	Iterable::Int(n) => n.js_value(),
-		// 	Iterable::Array(a) => {
-		// 		a.iter().enumerate().fold(
-		// 			JsArray::new_with_length(a.len() as u32),
-		// 			|acc, (i, e)| { acc.set(i as u32, e.js_value()); acc }
-		// 		)
-		// 		.into()
-		// 	},
-		// }
-		unimplemented!()
+		match self {
+			Iterable::Int(n) => n.as_js_value(),
+			Iterable::Array(a) => {
+				a.iter().fold(
+					JsValue::new_array(),
+					|acc, e| { acc.array_push(e.as_js_value()); acc }
+				)
+			},
+		}
 	}
 }
 impl <T: FromJsValue> FromJsValue for Iterable<T> {

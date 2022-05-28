@@ -220,6 +220,31 @@ pub fn generate<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 				}
 			));
 
+			match decl.prop_type {
+				Type::Iter(_) => {
+					let get_index = format_ident!("{}__get_index_{}", struct_name, name);
+					let set_index = format_ident!("{}__set_index_{}", struct_name, name);
+					props.push(quote!(
+						#[no_mangle]
+						#[allow(non_snake_case)]
+						pub fn #get_index(this: #abi_struct_name, index: usize) -> ui::JsValue {
+							let interface = #interface_struct_name::from_abi(this);
+							let result = ui::AsJsValue::as_js_value(&interface.component.borrow().#name_ident.get_index(index));
+							interface.release_into_js();
+							result
+						}
+						#[no_mangle]
+						#[allow(non_snake_case)]
+						pub fn #set_index(this: #abi_struct_name, index: usize, value: ui::JsValue) {
+							let interface = #interface_struct_name::from_abi(this);
+							interface.component.borrow_mut().#name_ident.set_index(index, ui::FromJsValue::from_js_value(value));
+							interface.release_into_js();
+						}
+					));
+				},
+				_ => {},
+			}
+
 			js_field_inits.push(quote!(
 				#name_ident: value.get_property(#name)
 					.map(|e| ui::FromJsValue::from_js_value(e))

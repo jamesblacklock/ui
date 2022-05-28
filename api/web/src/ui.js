@@ -17,9 +17,23 @@
 				__send_f32(value) {
 					return uiPriv.addToHeap(value);
 				},
+				__send_bound_callback(ptr) {
+					return uiPriv.addToHeap(uiPriv.makeBoundCallback(ptr));
+				},
+				__load_bound_callback(ptr) {
+					f = uiPriv.getHeapObject(ptr);
+					if(f?.__ptr?.constructor != Number) {
+						throw new Error(`expected pointer, found '${ptr}'`)
+					}
+					return f.__ptr;
+				},
 				__console_log(ptr, len) {
 					const message = uiPriv.getStringFromWasm(ptr, len);
 					console.log(message);
+				},
+				__throw_error(ptr, len) {
+					const message = uiPriv.getStringFromWasm(ptr, len);
+					throw new Error(message);
 				},
 				__create_text_node(ptr, len) {
 					const content = uiPriv.getStringFromWasm(ptr, len);
@@ -56,15 +70,16 @@
 					const value = uiPriv.getStringFromWasm(vptr, vlen);
 					uiPriv.getHeapNode(node).style[prop] = value;
 				},
-				__add_event_listener(node, ptr, len, callback) {
-					const event = uiPriv.getStringFromWasm(ptr, len);
-					callback = uiPriv.getHeapCallback(callback);
-					uiPriv.getHeapNode(node).addEventListener(event, callback);
-				},
-				__remove_event_listener(node, ptr, len, callback) {
-					const event = uiPriv.getStringFromWasm(ptr, len);
-					callback = uiPriv.getHeapCallback(callback);
-					uiPriv.getHeapNode(node).removeEventListener(event, callback);
+				__update_event_listener(node, eptr, len, cptr) {
+					const event = uiPriv.getStringFromWasm(eptr, len);
+					const key = `__${event}_${cptr}`;
+					
+					node = uiPriv.getHeapNode(node);
+					if(node[key]) {
+						node.removeEventListener(event, node[key]);
+					}
+					node[key] = () => uiPriv.__dispatch_bound_callback(cptr);
+					node.addEventListener(event, node[key]);
 				},
 				__heap_object_as_bool(ptr) {
 					const object = uiPriv.getHeapObject(ptr);
@@ -181,9 +196,8 @@
 
 		const uiPriv = {
 			Iterable,
-
 			components: {},
-			heap: [null], // 0 is the null pointer; we don't want anything at index 0
+			heap: [null, true, false],
 			freeHeapIndices: [],
 			wasm: WebAssembly.instantiateStreaming(fetch(wasm), wasm_imports),
 			decoder: new TextDecoder('utf-8', { ignoreBOM: true, fatal: true }),
@@ -205,7 +219,19 @@
 				buffer.set(this.stagedString);
 				delete this.stagedString;
 			},
+			makeBoundCallback(ptr) {
+				let f = () => this.__dispatch_bound_callback(ptr);
+				f.__ptr = ptr;
+				return f;
+			},
 			addToHeap(item) {
+				if(item == null) {
+					return 0;
+				} else if(item === true) {
+					return 1;
+				} else if(item === false) {
+					return 2;
+				}
 				let ptr = this.freeHeapIndices.pop();
 				if(ptr == null) {
 					ptr = this.heap.length;
@@ -217,8 +243,10 @@
 			},
 			dropFromHeap(ptr) {
 				let result = this.heap[ptr];
-				delete this.heap[ptr];
-				this.freeHeapIndices.push(ptr);
+				if(ptr > 2) {
+					delete this.heap[ptr];
+					this.freeHeapIndices.push(ptr);
+				}
 				return result;
 			},
 			getHeapObject(ptr) {
@@ -269,8 +297,6 @@
 			getProperty(component, getter, name, type) {
 				if(type instanceof Array) {
 					return new Iterable(component, name, type[0]);
-				} else if(type == 'Callback') {
-					return () => this.dispatch(component, name);
 				}
 				return this.dropFromHeap(getter(component.ptr));
 			},
@@ -285,9 +311,6 @@
 					component.render();
 				});
 			},
-			dispatch(component, name) {
-				console.log('dispatch:', name);
-			}
 		}
 
 		const UI = {
@@ -322,14 +345,12 @@
 					propsDef = JSON.parse(json);
 				}
 
-				
-
-				Class = eval(`(class ${name} { constructor(props) { this.__constructor(props) } })`);
+				const Class = eval(`(class ${name} { constructor(props) { this.__constructor(props) } })`);
 				Class.prototype.__constructor = function(props) {
 					props = uiPriv.sanitizeProps(props, propsDef, this);
 					const ptr = componentPriv.__new_component(uiPriv.addToHeap(props));
 					Object.defineProperty(this, 'ptr', { value: ptr });
-				}
+				};
 				Class.prototype.propsDef = propsDef;
 				Class.prototype.attachToElement = function(element) {
 					if(typeof element == 'string') {
@@ -342,11 +363,11 @@
 					let eptr = uiPriv.addToHeap(element);
 					componentPriv.__attach_to_element(this.ptr, eptr);
 					this.render();
-				}
+				};
 				Class.prototype.render = function() {
 					componentPriv.__update_component(this.ptr);
 					componentPriv.__render_component(this.ptr);
-				}
+				};
 				
 				for(let key in propsDef) {
 					let get;
@@ -378,5 +399,8 @@
 		};
 		w.UI = UI;
 		w.__uiPriv = uiPriv;
-		uiPriv.wasm.then(wasm => { uiPriv.memory = wasm.instance.exports.memory });
+		uiPriv.wasm.then(wasm => {
+			uiPriv.memory = wasm.instance.exports.memory;
+			uiPriv.__dispatch_bound_callback = wasm.instance.exports.__dispatch_bound_callback;
+		});
 	})

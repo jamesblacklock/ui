@@ -1,3 +1,5 @@
+use std::rc::Rc;
+use std::cell::RefCell;
 use winit::{
 	event::{Event, WindowEvent},
 	event_loop::{ControlFlow, EventLoop},
@@ -17,13 +19,13 @@ pub struct FloatBounds {
 	pub height: f32,
 }
 
-pub struct ComponentWindow<T: Component<NoAbi> + 'static> {
+pub struct ComponentWindow<C: Component + 'static> {
 	window: Window,
 	background: wgpu::Color,
 	surface: wgpu::Surface,
 	event_loop: EventLoop<()>,
 	instance: wgpu::Instance,
-	component: T,
+	component: Rc<RefCell<C>>,
 	root: Element,
 	pointer_position: Option<(f32, f32)>,
 }
@@ -176,8 +178,6 @@ fn build_rect_vertices(rect: &Rect, ctx: &ElementContext) -> (Vec<Vertex>, Vec<u
 	(vertices, indices)
 }
 
-type Element = ui_base::Element<NoAbi>;
-
 impl RenderNative for Element {
 	fn render(&self, parent_ctx: &ElementContext, rctx: &mut RenderContext) {
 		let ctx = create_context(self, parent_ctx);
@@ -192,8 +192,8 @@ impl RenderNative for Element {
 	}
 }
 
-impl <T: Component<NoAbi>> ComponentWindow<T> {
-	pub fn new(window_builder: winit::window::WindowBuilder, component: T) -> Self {
+impl <C: Component> ComponentWindow<C> {
+	pub fn new(window_builder: winit::window::WindowBuilder, component: C) -> Self {
 		let event_loop = EventLoop::new();
 		let window = window_builder.build(&event_loop).unwrap();
 
@@ -206,7 +206,7 @@ impl <T: Component<NoAbi>> ComponentWindow<T> {
 			surface,
 			event_loop,
 			instance,
-			component,
+			component: Rc::new(RefCell::new(component)),
 			root: Element::root(),
 			pointer_position: None,
 		}
@@ -269,7 +269,7 @@ impl <T: Component<NoAbi>> ComponentWindow<T> {
 					println!("{state:?} {button:?}");
 				},
 				Event::RedrawRequested(_) => {
-					self.component.update(&mut self.root);
+					Component::update(self.component.clone(), &mut self.root);
 
 					let mut rctx = RenderContext {
 						device: &device,

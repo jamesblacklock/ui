@@ -3,9 +3,6 @@ name = "ui_base"
 version = "0.1.0"
 edition = "2021"
 
-[dependencies]
-cfg-if = "1.0.0"
-
 [lib]
 name = "ui_base"
 path = "src/lib.rs"

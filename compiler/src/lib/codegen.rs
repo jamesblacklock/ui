@@ -50,7 +50,7 @@ fn codegen_element(e: &Element, ctx: &mut CodeGenCtx) -> TokenStream {
 				let callback = e.events.$event.to_tokens();
 				let event_type = format_ident!("{}", stringify!($event).to_case(Case::UpperCamel));
 				events.push(quote!(
-					ui::handle_event(e, ui::EventType::#event_type, Some(#callback));
+					ui::handle_event(this.clone(), e, ui::EventType::#event_type, Some(#callback));
 				));
 			}
 		};
@@ -187,8 +187,10 @@ pub fn generate<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 						#[allow(non_snake_case)]
 						pub fn #call(this: #abi_struct_name) {
 							let interface = #interface_struct_name::from_abi(this);
-							interface.component.#name_ident.call();
+							let callback = interface.component.borrow()
+								.#name_ident.bind(&interface.component);
 							interface.release_into_js();
+							callback.call();
 						}
 					)
 				},
@@ -199,7 +201,7 @@ pub fn generate<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 						#[allow(non_snake_case)]
 						pub fn #getter_name(this: #abi_struct_name) -> ui::JsValue {
 							let interface = #interface_struct_name::from_abi(this);
-							let result = ui::ConvertJsValue::as_js_value(&interface.component.#name_ident);
+							let result = ui::AsJsValue::as_js_value(&interface.component.borrow().#name_ident);
 							interface.release_into_js();
 							return result;
 						}
@@ -212,15 +214,15 @@ pub fn generate<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 				#[no_mangle]
 				#[allow(non_snake_case)]
 				pub fn #setter_name(this: #abi_struct_name, value: ui::JsValue) {
-					let mut interface = #interface_struct_name::from_abi(this);
-					interface.component.#name_ident = ui::ConvertJsValue::from_js_value(value);
+					let interface = #interface_struct_name::from_abi(this);
+					interface.component.borrow_mut().#name_ident = ui::FromJsValue::from_js_value(value);
 					interface.release_into_js();
 				}
 			));
 
 			js_field_inits.push(quote!(
 				#name_ident: value.get_property(#name)
-					.map(|e| ui::ConvertJsValue::from_js_value(e))
+					.map(|e| ui::FromJsValue::from_js_value(e))
 					.unwrap_or_default(),));
 		}
 
@@ -231,14 +233,16 @@ pub fn generate<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 				#[repr(transparent)]
 				pub struct #abi_struct_name(usize);
 				struct #interface_struct_name {
-					component: #struct_name,
+					component: std::rc::Rc<std::cell::RefCell<#struct_name>>,
 					web_element: Option<ui::WebElement>,
-					root: ui::Element<Abi>,
+					root: ui::Element,
 				}
 				impl #interface_struct_name {
 					fn new(props: ui::JsValue) -> #interface_struct_name {
+						ui::panic_hook::set_once();
+
 						#interface_struct_name {
-							component: #struct_name::new(Props::from(props)),
+							component: std::rc::Rc::new(std::cell::RefCell::new(#struct_name::new(Props::from(props)))),
 							web_element: None,
 							root: ui::Element::root(),
 						}
@@ -288,7 +292,7 @@ pub fn generate<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 				pub fn #update_component(this: #abi_struct_name) {
 					use ui::Component;
 					let mut interface = #interface_struct_name::from_abi(this);
-					interface.component.update(&mut interface.root);
+					Component::update(interface.component.clone(), &mut interface.root);
 					interface.release_into_js();
 				}
 				#[no_mangle]
@@ -309,11 +313,11 @@ pub fn generate<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 	let code = quote!(
 		#[allow(unused_variables, dead_code)]
 		pub mod #mod_name {
-			// type This = #struct_name;
 			#[cfg(target_arch = "wasm32")]
 			type Abi = ui::JsValue;
 			#[cfg(not(target_arch = "wasm32"))]
 			type Abi = ui::NoAbi;
+			pub type Callback = ui::Callback<#struct_name>;
 			
 			#[derive(Default, Debug)]
 			pub struct #struct_name {
@@ -332,8 +336,9 @@ pub fn generate<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 					}
 				}
 			}
-			impl ui::Component<Abi> for #struct_name {
-				fn update(&mut self, parent: &mut ui::Element<Abi>) {
+			impl ui::Component for #struct_name {
+				type Abi = Abi;
+				fn update(this: std::rc::Rc<std::cell::RefCell<#struct_name>>, parent: &mut ui::Element) {
 					#code
 				}
 			}
@@ -430,59 +435,10 @@ impl CodeGenCtx {
 			file,
 			name,
 			index: 0,
-			// indent: 0,
-			// stack: Vec::new(),
 			dir,
 			tempname,
 		}
 	}
-
-	// fn indent(&self) -> String {
-	// 	(0..self.indent).map(|_| '\t').collect()
-	// }
-
-	// fn begin<T: Into<HtmlContent>>(&mut self, content: T) {
-	// 	self.stack.push(content.into());
-	// }
-
-	// fn end(&mut self) -> Option<HtmlContent> {
-	// 	let item = self.stack.pop().unwrap();
-	// 	if let Some(parent) = self.stack.last_mut() {
-	// 		match parent {
-	// 			HtmlContent::Element(e) => e.content.push(item),
-	// 			HtmlContent::Component(c) => c.content.push(item),
-	// 			_ => unreachable!(),
-	// 		}
-	// 		None
-	// 	} else {
-	// 		Some(item)
-	// 	}
-	// }
-
-	// fn append_content(&mut self, content: HtmlContent) {
-	// 	let parent = self.stack.last_mut().unwrap();
-	// 	match parent {
-	// 		HtmlContent::Element(e) => e.content.push(content),
-	// 		HtmlContent::Component(c) => c.content.push(content),
-	// 		_ => unreachable!(),
-	// 	}
-	// }
-
-	// fn render_children(&mut self, children: &Vec<Content>) {
-	// 	for child in children.iter() {
-	// 		self.render_child(child);
-	// 	}
-	// }
-	// fn render_child(&mut self, child: &Content) {
-	// 	match child {
-	// 		Content::Element(element) => {
-	// 			element.render_web(self);
-	// 		}
-	// 		Content::Children(children) => {
-	// 			self.append_content(HtmlContent::Children(children.clone()))
-	// 		}
-	// 	}
-	// }
 
 	fn finalize(self) {
 		std::mem::drop(self.file);
@@ -523,7 +479,7 @@ impl Type {
 				quote!(ui::Alignment)
 			},
 			Type::Callback => {
-				quote!(ui::Callback<Abi>)
+				quote!(Callback)
 			},
 			Type::Iter(t) => {
 				let t = t.to_tokens();
@@ -566,7 +522,7 @@ impl Value {
 			},
 			Value::Binding(Expr::Path(path, Ctx::Component)) => {
 				let ident = format_ident!("{}", path.join("."));
-				quote!(self.#ident)
+				quote!(this.borrow().#ident)
 			},
 			Value::Binding(Expr::Path(path, Ctx::Repeater)) => {
 				if path.len() > 1 {

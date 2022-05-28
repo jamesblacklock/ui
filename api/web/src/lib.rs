@@ -1,17 +1,19 @@
 use std::{
 	collections::HashMap,
-	cell::{Cell},
 	rc::Rc,
 	alloc::{alloc, dealloc, Layout},
 };
 
 pub use ui_base::*;
 
+pub mod panic_hook;
+
 #[link(wasm_import_module = "runtime")]
 extern "C" {
 	fn __console_log(ptr: *const u8, len: usize);
-	fn __create_text_node(ptr: *const u8, len: usize) -> usize;
-	fn __create_element(ptr: *const u8, len: usize) -> usize;
+	fn __throw_error(ptr: *const u8, len: usize);
+	fn __create_text_node(ptr: *const u8, len: usize) -> HtmlNode;
+	fn __create_element(ptr: *const u8, len: usize) -> HtmlNode;
 	fn __next_sibling(node: HtmlNode) -> HtmlNode;
 	fn __insert_before(node: HtmlNode, insert: HtmlNode, reference: HtmlNode);
 	fn __append_child(node: HtmlNode, child: HtmlNode);
@@ -19,8 +21,7 @@ extern "C" {
 	fn __remove(node: HtmlNode);
 	fn __set_text_content(node: HtmlNode, ptr: *const u8, len: usize);
 	fn __set_style(node: HtmlNode, pptr: *const u8, plen: usize, vptr: *const u8, vlen: usize);
-	fn __add_event_listener(node: HtmlNode, ptr: *const u8, len: usize, callback: JsValue);
-	fn __remove_event_listener(node: HtmlNode, ptr: *const u8, len: usize, callback: JsValue);
+	fn __update_event_listener(node: HtmlNode, eptr: *const u8, len: usize, cptr: usize);
 	fn __heap_object_as_bool(object: JsValue) -> isize;
 	fn __heap_object_stage_string(object: JsValue) -> isize;
 	fn __heap_object_load_string(dest: *const u8);
@@ -28,11 +29,22 @@ extern "C" {
 	fn __heap_object_is_function(object: JsValue) -> bool;
 	fn __heap_object_call_function(object: JsValue);
 	fn __heap_object_is_array(object: JsValue) -> bool;
-	fn __heap_object_get_property(object: JsValue, keyptr: *const u8, keylen: usize) -> usize;
+	fn __heap_object_get_property(object: JsValue, keyptr: *const u8, keylen: usize) -> JsValue;
 	fn __heap_object_drop(object: JsValue);
 	fn __send_bool(value: bool) -> JsValue;
 	fn __send_f32(value: f32) -> JsValue;
+	fn __send_bound_callback(ptr: usize) -> JsValue;
+	fn __load_bound_callback(value: JsValue) -> usize;
 	pub fn __send_string(ptr: *const u8, len: usize) -> JsValue;
+}
+
+#[no_mangle]
+pub fn __dispatch_bound_callback(ptr: usize) {
+	unsafe {
+		let callback = BoundCallback::restore(ptr);
+		callback.call();
+		callback.leak();
+	}
 }
 
 #[repr(transparent)]
@@ -48,13 +60,13 @@ impl HtmlNode {
 			Some(node)
 		}
 	}
-	pub fn insert_before(&self, insert: &HtmlNode, reference: Option<HtmlNode>) {
+	pub fn insert_before(&self, insert: &HtmlNode, reference: Option<&HtmlNode>) {
 		let reference = if let Some(reference) = reference {
-			reference
+			reference.0
 		} else {
-			HtmlNode(0)
+			0
 		};
-		unsafe { __insert_before(HtmlNode(self.0), HtmlNode(insert.0), reference); }
+		unsafe { __insert_before(HtmlNode(self.0), HtmlNode(insert.0), HtmlNode(reference)); }
 	}
 	pub fn append_child(&self, child: &HtmlNode) {
 		unsafe { __append_child(HtmlNode(self.0), HtmlNode(child.0)); }
@@ -80,14 +92,10 @@ impl HtmlNode {
 			});
 		});
 	}
-	pub fn add_event_listener(&self, event: &str, callback: Callback) {
-		let js_value = callback.as_js_value();
-		string_into_js(&event, |p, len| unsafe { __add_event_listener(HtmlNode(self.0), p, len, js_value) });
-	}
-	pub fn remove_event_listener(&self, event: &str, callback: &Callback) {
-		let js_value = callback.as_js_value();
-		string_into_js(&event, |p, len| unsafe { __remove_event_listener(HtmlNode(self.0), p, len, JsValue(js_value.0)) });
-		std::mem::drop(js_value);
+	pub fn update_event_listener(&self, event: &str, callback: usize) {
+		string_into_js(&event, |p, len| unsafe {
+			__update_event_listener(HtmlNode(self.0), p, len, callback);
+		});
 	}
 }
 
@@ -120,14 +128,16 @@ pub fn console_log<S: AsRef<str>>(message: S) {
 	string_into_js(&message, |p, len| unsafe { __console_log(p, len); });
 }
 
+pub fn throw_error<S: AsRef<str>>(message: S) {
+	string_into_js(&message, |p, len| unsafe { __throw_error(p, len); });
+}
+
 fn create_text_node<S: AsRef<str>>(content: S) -> HtmlNode {
-	let result = string_into_js(&content, |p, len| unsafe { __create_text_node(p, len) });
-	HtmlNode(result)
+	string_into_js(&content, |p, len| unsafe { __create_text_node(p, len) })
 }
 
 fn create_element<S: AsRef<str>>(tag: S) -> HtmlNode {
-	let result = string_into_js(&tag, |p, len| unsafe { __create_element(p, len) });
-	HtmlNode(result)
+	string_into_js(&tag, |p, len| unsafe { __create_element(p, len) })
 }
 
 #[repr(transparent)]
@@ -205,10 +215,10 @@ impl JsValue {
 	}
 	pub fn get_property<S: AsRef<str>>(&self, key: S) -> Option<JsValue> {
 		let result = string_into_js(&key, |p, len| unsafe { __heap_object_get_property(JsValue(self.0), p, len) });
-		if result == 0 {
+		if result.0 == 0 {
 			None
 		} else {
-			Some(JsValue(result))
+			Some(result)
 		}
 	}
 	pub fn from_str(value: &str) -> JsValue {
@@ -236,12 +246,11 @@ impl HostAbi for JsValue {
 	fn call(&self) {
 		self.call_function()
 	}
+	fn id(&self) -> usize {
+		self.0
+	}
 }
 
-type Element = ui_base::Element<JsValue>;
-type Callback = ui_base::Callback<JsValue>;
-
-#[no_mangle]
 pub fn render_html(root: &mut Element, web_element: &mut WebElement) {
 	RenderWeb::render(root, web_element, 0, true);
 }
@@ -255,37 +264,30 @@ fn length_as_css(this: &Length) -> String {
 	}
 }
 
-pub trait ConvertJsValue {
-	fn from_js_value(value: JsValue) -> Self;
+pub trait AsJsValue {
 	fn as_js_value(&self) -> JsValue;
 }
 
-impl ConvertJsValue for Callback {
-	fn as_js_value(&self) -> JsValue {
-		let f = self.0.take();
-		let result = match f {
-			CallbackInner::Empty => unimplemented!(),
-			CallbackInner::Native(_) => unimplemented!(),
-			CallbackInner::HostAbi(ref js_value) => JsValue(js_value.0),
-		};
-		self.0.set(f);
-		result
-	}
+pub trait FromJsValue {
+	fn from_js_value(value: JsValue) -> Self;
+}
 
-	fn from_js_value(value: JsValue) -> Callback {
+impl <C> FromJsValue for Callback<C> where C: Component<Abi = JsValue> {
+	fn from_js_value(value: JsValue) -> Self {
 		if value.is_function() {
-			Callback(Rc::new(Cell::new(CallbackInner::HostAbi(value))))
+			Callback::from_abi(value)
 		} else {
 			Callback::default()
 		}
 	}
 }
 
-impl ConvertJsValue for Length {
+impl AsJsValue for Length {
 	fn as_js_value(&self) -> JsValue {
 		JsValue::from_str(&length_as_css(self))
 	}
-
+}
+impl FromJsValue for Length {
 	fn from_js_value(value: JsValue) -> Length {
 		use regex::Regex;
 		if let Some(s) = value.as_string() {
@@ -307,37 +309,40 @@ impl ConvertJsValue for Length {
 	}
 }
 
-impl ConvertJsValue for bool {
+impl AsJsValue for bool {
 	fn as_js_value(&self) -> JsValue {
 		JsValue::from_bool(*self)
 	}
-
+}
+impl FromJsValue for bool {
 	fn from_js_value(value: JsValue) -> bool {
 		value.as_bool().unwrap_or_default()
 	}
 }
 
-impl ConvertJsValue for String {
+impl AsJsValue for String {
 	fn as_js_value(&self) -> JsValue {
 		JsValue::from_str(self)
 	}
-
+}
+impl FromJsValue for String {
 	fn from_js_value(value: JsValue) -> String {
 		value.as_string().unwrap_or_default()
 	}
 }
 
-impl ConvertJsValue for i32 {
+impl AsJsValue for i32 {
 	fn as_js_value(&self) -> JsValue {
 		JsValue::from_f32(*self as f32)
 	}
-
+}
+impl FromJsValue for i32 {
 	fn from_js_value(value: JsValue) -> i32 {
 		value.as_f32().unwrap_or_default() as i32
 	}
 }
 
-impl <T: ConvertJsValue> ConvertJsValue for Iterable<T> {
+impl <T: AsJsValue> AsJsValue for Iterable<T> {
 	fn as_js_value(&self) -> JsValue {
 		// match self {
 		// 	Iterable::Int(n) => n.js_value(),
@@ -351,7 +356,8 @@ impl <T: ConvertJsValue> ConvertJsValue for Iterable<T> {
 		// }
 		unimplemented!()
 	}
-
+}
+impl <T: FromJsValue> FromJsValue for Iterable<T> {
 	fn from_js_value(value: JsValue) -> Iterable<T> {
 		if let Some(n) = value.as_f32() {
 			<Iterable<T>>::Int(n as i32)
@@ -370,7 +376,7 @@ impl <T: ConvertJsValue> ConvertJsValue for Iterable<T> {
 #[derive(Debug)]
 pub struct WebElement {
 	pub node: Option<Rc<HtmlNode>>,
-	pub events: HashMap<String, Callback>,
+	pub events: HashMap<String, BoundCallback>,
 	pub active_group: Option<usize>,
 	pub children: Vec<WebElement>,
 	pub is_in: bool,
@@ -402,12 +408,10 @@ impl RenderWeb for Element {
 			if let Some(callback) = self.events.pointer_click.as_ref() {
 				let node = parent.node.as_ref().unwrap();
 				let current_callback = parent.events.get("click");
-				if current_callback.map(|c| c != callback).unwrap_or(true) {
-					if let Some(current_callback) = current_callback {
-						node.remove_event_listener("click", &current_callback);
-					}
-					parent.events.insert("click".to_owned(), callback.clone());
-					node.add_event_listener("click", callback.clone());
+				if current_callback != Some(callback) {
+					let (callback, ptr) = unsafe { callback.clone().ptr() };
+					node.update_event_listener("click", ptr);
+					parent.events.insert("click".into(), callback);
 				}
 			}
 			if self.group {
@@ -490,12 +494,12 @@ fn html_in(parent: &mut WebElement, tag_or_content: &str, i: usize, is_text: boo
 		if !e.is_in {
 			if let Some(l) = last_in {
 				if let Some(sibling) = l.next_sibling() {
-					parent_node.insert_before(e.node.as_ref().unwrap(), Some(sibling));
+					parent_node.insert_before(e.node.as_ref().unwrap(), Some(&sibling));
 				} else {
 					parent_node.append_child(e.node.as_ref().unwrap());
 				} 
 			} else {
-				parent_node.insert_before(e.node.as_ref().unwrap(), parent_node.first_child());
+				parent_node.insert_before(e.node.as_ref().unwrap(), parent_node.first_child().as_ref());
 			}
 		}
 		e.is_in = true;

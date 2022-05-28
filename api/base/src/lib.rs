@@ -1,4 +1,9 @@
+use std::cell::RefCell;
 use std::rc::Rc;
+
+mod callback;
+
+pub use callback::{Callback, BoundCallback};
 
 #[derive(Debug, Clone)]
 pub struct PxBounds {
@@ -95,8 +100,9 @@ impl Iterable<i32> {
 	}
 }
 
-pub trait Component<T: HostAbi> {
-	fn update(&mut self, parent: &mut Element<T>);
+pub trait Component: std::fmt::Debug {
+	type Abi: HostAbi;
+	fn update(this: Rc<RefCell<Self>>, parent: &mut Element);
 }
 
 #[derive(Debug)]
@@ -138,15 +144,15 @@ pub struct Text {
 }
 
 #[derive(Debug)]
-pub struct Element<T: HostAbi> {
+pub struct Element {
 	pub element_impl: ElementImpl,
-	pub children: Vec<Element<T>>,
+	pub children: Vec<Element>,
 	pub show: bool,
 	pub group: bool,
-	pub events: Events<T>,
+	pub events: Events,
 }
 
-impl <T: HostAbi> Element<T> {
+impl Element {
 	pub fn root() -> Self {
 		Element {
 			element_impl: ElementImpl::Root,
@@ -157,7 +163,7 @@ impl <T: HostAbi> Element<T> {
 		}
 	}
 
-	pub fn new(e: ElementImpl) -> Element<T> {
+	pub fn new(e: ElementImpl) -> Element {
 		Element {
 			element_impl: e,
 			children: Vec::new(),
@@ -168,10 +174,9 @@ impl <T: HostAbi> Element<T> {
 	}
 }
 
-use std::cell::Cell;
-
 pub trait HostAbi: std::fmt::Debug {
 	fn call(&self);
+	fn id(&self) -> usize;
 }
 
 #[derive(Debug)]
@@ -180,85 +185,12 @@ impl HostAbi for NoAbi {
 	fn call(&self) {
 		unreachable!()
 	}
-}
-
-pub enum CallbackInner<T: HostAbi> {
-	Empty,
-	HostAbi(T),
-	Native(Box<dyn Fn()>),
-}
-
-impl <T: HostAbi> CallbackInner<T> {
-	fn call(&self) {
-		match self {
-			CallbackInner::Empty => {},
-			CallbackInner::HostAbi(abi) => abi.call(),
-			CallbackInner::Native(f) => f(),
-		}
+	fn id(&self) -> usize {
+		unreachable!()
 	}
 }
 
-impl <T: HostAbi> Default for CallbackInner<T> {
-	fn default() -> Self {
-		CallbackInner::Empty
-	}
-}
-
-impl <T: HostAbi> std::fmt::Debug for CallbackInner<T> {
-	fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
-		match self {
-			CallbackInner::Empty      => write!(fmt, "Empty"),
-			CallbackInner::HostAbi(abi) => write!(fmt, "HostAbi({abi:?})"),
-			CallbackInner::Native(_)  => write!(fmt, "Native(Box<dyn Fn()>)"),
-		}
-	}
-}
-
-pub struct Callback<T: HostAbi = NoAbi>(pub Rc<Cell<CallbackInner<T>>>);
-
-impl <T: HostAbi> Clone for Callback<T> {
-	fn clone(&self) -> Self {
-		Callback(self.0.clone())
-	}
-}
-
-impl <T: HostAbi> Default for Callback<T> {
-	fn default() -> Self {
-		Callback(Rc::new(Cell::new(CallbackInner::Empty)))
-	}
-}
-
-impl <T: HostAbi, F: 'static + Fn()> From<&'static F> for Callback<T> {
-	fn from(f: &'static F) -> Self {
-		let f: &'static dyn Fn() = f;
-		Callback(Rc::new(Cell::new(CallbackInner::Native(Box::new(f)))))
-	}
-}
-
-impl <T: HostAbi> std::fmt::Debug for Callback<T> {
-	fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
-		let item = self.0.take();
-		write!(fmt, "Callback({:?})", item)?;
-		self.0.set(item);
-		Ok(())
-	}
-}
-
-impl <T: HostAbi> Callback<T> {
-	pub fn call(&self) {
-		let f = self.0.take();
-		f.call();
-		self.0.set(f);
-	}
-}
-
-impl <T: HostAbi> std::cmp::PartialEq for Callback<T> {
-	fn eq(&self, other: &Callback<T>) -> bool {
-		Rc::ptr_eq(&self.0, &other.0)
-	}
-}
-
-pub fn element_in<T: HostAbi>(parent: &mut Element<T>, e: ElementImpl, i: usize) -> &mut Element<T> {
+pub fn element_in(parent: &mut Element, e: ElementImpl, i: usize) -> &mut Element {
 	if i < parent.children.len() {
 		let element = &mut parent.children[i];
 		element.show = true;
@@ -272,17 +204,17 @@ pub fn element_in<T: HostAbi>(parent: &mut Element<T>, e: ElementImpl, i: usize)
 	}
 }
 
-pub fn element_out<T: HostAbi>(parent: &mut Element<T>, e: ElementImpl, i: usize) {
+pub fn element_out(parent: &mut Element, e: ElementImpl, i: usize) {
 	element_in(parent, e, i).show = false;
 }
 
-pub fn begin_group<T: HostAbi>(parent: &mut Element<T>, i: usize) -> &mut Element<T> {
+pub fn begin_group(parent: &mut Element, i: usize) -> &mut Element {
 	let mut e = element_in(parent, ElementImpl::Group, i);
 	e.group = true;
 	e
 }
 
-pub fn end_group<T: HostAbi>(parent: &mut Element<T>, i: usize) {
+pub fn end_group(parent: &mut Element, i: usize) {
 	for e in parent.children.iter_mut().skip(i) {
 		e.show = false;
 	}
@@ -298,16 +230,16 @@ pub enum EventType {
 }
 
 #[derive(Debug)]
-pub struct Events<T: HostAbi>  {
-	pub pointer_click: Option<Callback<T>>,
-	pub pointer_press: Option<Callback<T>>,
-	pub pointer_release: Option<Callback<T>>,
-	pub pointer_move: Option<Callback<T>>,
-	pub pointer_in: Option<Callback<T>>,
-	pub pointer_out: Option<Callback<T>>,
+pub struct Events  {
+	pub pointer_click: Option<BoundCallback>,
+	pub pointer_press: Option<BoundCallback>,
+	pub pointer_release: Option<BoundCallback>,
+	pub pointer_move: Option<BoundCallback>,
+	pub pointer_in: Option<BoundCallback>,
+	pub pointer_out: Option<BoundCallback>,
 }
 
-impl <T: HostAbi> Default for Events<T> {
+impl Default for Events {
 	fn default() -> Self {
 		Events {
 			pointer_click: None,
@@ -320,14 +252,14 @@ impl <T: HostAbi> Default for Events<T> {
 	}
 }
 
-pub fn handle_event<T: HostAbi>(parent: &mut Element<T>, event_type: EventType, callback: Option<Callback<T>>) {
+pub fn handle_event<C: Component + 'static>(component: Rc<RefCell<C>>, parent: &mut Element, event_type: EventType, callback: Option<Callback<C>>) {
 	match event_type {
-		EventType::PointerClick   => parent.events.pointer_click   = callback,
-		EventType::PointerPress   => parent.events.pointer_press   = callback,
-		EventType::PointerRelease => parent.events.pointer_release = callback,
-		EventType::PointerMove    => parent.events.pointer_move    = callback,
-		EventType::PointerIn      => parent.events.pointer_in      = callback,
-		EventType::PointerOut     => parent.events.pointer_out     = callback,
+		EventType::PointerClick   => parent.events.pointer_click   = callback.map(|c| c.bind(&component)),
+		EventType::PointerPress   => parent.events.pointer_press   = callback.map(|c| c.bind(&component)),
+		EventType::PointerRelease => parent.events.pointer_release = callback.map(|c| c.bind(&component)),
+		EventType::PointerMove    => parent.events.pointer_move    = callback.map(|c| c.bind(&component)),
+		EventType::PointerIn      => parent.events.pointer_in      = callback.map(|c| c.bind(&component)),
+		EventType::PointerOut     => parent.events.pointer_out     = callback.map(|c| c.bind(&component)),
 	}
 }
 

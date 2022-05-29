@@ -177,11 +177,11 @@ pub fn generate<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 		let mut props = Vec::new();
 		for (name, decl) in component.props.iter().filter(|(_, decl)| decl.is_pub) {
 			let name_ident = format_ident!("{}", name);
-			let setter_name = format_ident!("{}__set_{}", struct_name, name);
+			let setter_name = format_ident!("{}__set__{}", struct_name, name);
 
 			let getter = match decl.prop_type {
 				Type::Callback => {
-					let call = format_ident!("{}__call_{}", struct_name, name);
+					let call = format_ident!("{}__call__{}", struct_name, name);
 					quote!(
 						#[no_mangle]
 						#[allow(non_snake_case)]
@@ -195,7 +195,7 @@ pub fn generate<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 					)
 				},
 				_ => {
-					let getter_name = format_ident!("{}__get_{}", struct_name, name);
+					let getter_name = format_ident!("{}__get__{}", struct_name, name);
 					quote!(
 						#[no_mangle]
 						#[allow(non_snake_case)]
@@ -222,8 +222,9 @@ pub fn generate<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 
 			match decl.prop_type {
 				Type::Iter(_) => {
-					let get_index = format_ident!("{}__get_index_{}", struct_name, name);
-					let set_index = format_ident!("{}__set_index_{}", struct_name, name);
+					let get_index = format_ident!("{}__get_index__{}", struct_name, name);
+					let set_index = format_ident!("{}__set_index__{}", struct_name, name);
+					let len = format_ident!("{}__len__{}", struct_name, name);
 					props.push(quote!(
 						#[no_mangle]
 						#[allow(non_snake_case)]
@@ -239,6 +240,14 @@ pub fn generate<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 							let interface = #interface_struct_name::from_abi(this);
 							interface.component.borrow_mut().#name_ident.set_index(index, ui::FromJsValue::from_js_value(value));
 							interface.release_into_js();
+						}
+						#[no_mangle]
+						#[allow(non_snake_case)]
+						pub fn #len(this: #abi_struct_name, index: usize) -> usize {
+							let interface = #interface_struct_name::from_abi(this);
+							let result = interface.component.borrow().#name_ident.len();
+							interface.release_into_js();
+							result
 						}
 					));
 				},

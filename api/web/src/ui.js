@@ -72,11 +72,15 @@
 				},
 				__update_event_listener(node, eptr, len, cptr) {
 					const event = uiPriv.getStringFromWasm(eptr, len);
-					const key = `__${event}_${cptr}`;
+					const key = `__${event}`;
 					
 					node = uiPriv.getHeapNode(node);
 					if(node[key]) {
 						node.removeEventListener(event, node[key]);
+					}
+					if(cptr == 0) {
+						delete node[key];
+						return;
 					}
 					node[key] = () => uiPriv.__dispatch_bound_callback(cptr);
 					node.addEventListener(event, node[key]);
@@ -192,26 +196,32 @@
 			constructor(component, exports, key, baseType) {
 				const name = component.constructor.name
 				this.component = component;
-				this.getter = getComponentExport(name, `${name}__get_${key}`, exports);
-				this._getIndex = getComponentExport(name, `${name}__get_index_${key}`, exports);
-				this._setIndex = getComponentExport(name, `${name}__set_index_${key}`, exports);
+				this.methods = {
+					getter:   getComponentExport(name, `${name}__get__${key}`, exports),
+					getIndex: getComponentExport(name, `${name}__get_index__${key}`, exports),
+					setIndex: getComponentExport(name, `${name}__set_index__${key}`, exports),
+					len:      getComponentExport(name, `${name}__len__${key}`, exports),
+				};
 				this.key = key;
 				this.baseType = baseType;
 			}
+			get length() {
+				return this.methods.len(this.component.ptr);
+			}
 			getIndex(index) {
-				return uiPriv.dropFromHeap(this._getIndex(this.component.ptr, index|0));
+				return uiPriv.dropFromHeap(this.methods.getIndex(this.component.ptr, index|0));
 			}
 			setIndex(index, value) {
 				value = uiPriv.sanitize(value, this.baseType, this.component);
 				if(value == null) {
 					return false;
 				}
-				this._setIndex(this.component.ptr, index|0, uiPriv.addToHeap(value));
+				this.methods.setIndex(this.component.ptr, index|0, uiPriv.addToHeap(value));
 				this.component.triggerUpdate();
 				return true;
 			}
 			toJSON() {
-				return uiPriv.dropFromHeap(this.getter(this.component.ptr));
+				return uiPriv.dropFromHeap(this.methods.getter(this.component.ptr));
 			}
 		}
 
@@ -425,12 +435,12 @@
 				for(let key in propsDef) {
 					let get;
 					if(propsDef[key] == 'Callback') {
-						let getter = getComponentExport(name, `${name}__call_${key}`, wasm.instance.exports);
+						let getter = getComponentExport(name, `${name}__call__${key}`, wasm.instance.exports);
 						get = function() {
 							return () => getter(this.ptr);
 						}
 					} else {
-						let getter = getComponentExport(name, `${name}__get_${key}`, wasm.instance.exports);
+						let getter = getComponentExport(name, `${name}__get__${key}`, wasm.instance.exports);
 						if(propsDef[key] instanceof Array) {
 							get = function() {
 								return uiPriv.iterable(this, wasm.instance.exports, key, type[0]);
@@ -442,7 +452,7 @@
 						}
 					}
 
-					let setter = getComponentExport(name, `${name}__set_${key}`, wasm.instance.exports);
+					let setter = getComponentExport(name, `${name}__set__${key}`, wasm.instance.exports);
 					let type = propsDef[key];
 					Object.defineProperty(Class.prototype, key, {
 						enumerable: true,

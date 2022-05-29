@@ -75,7 +75,7 @@ impl <T> Default for Iterable<T> {
 	}
 }
 
-impl <T: Default> Iterable<T> {
+impl <T> Iterable<T> {
 	pub fn from<U: Clone + Into<T>, A: AsRef<[U]>>(array: A) -> Self {
 		let vector = array.as_ref().iter().map(|e| e.clone().into()).collect();
 		Iterable::Array(vector)
@@ -88,6 +88,12 @@ impl <T: Default> Iterable<T> {
 					a[i] = value;
 				}
 			}
+		}
+	}
+	pub fn len(&self) -> usize {
+		match self {
+			Iterable::Int(n) => std::cmp::max(*n, 0) as usize,
+			Iterable::Array(a) => a.len()
 		}
 	}
 }
@@ -167,6 +173,7 @@ pub struct Text {
 
 #[derive(Debug)]
 pub struct Element {
+	id: usize,
 	pub element_impl: ElementImpl,
 	pub children: Vec<Element>,
 	pub show: bool,
@@ -174,9 +181,19 @@ pub struct Element {
 	pub events: Events,
 }
 
+fn next_id() -> usize {
+	std::thread_local!(static COUNTER: RefCell<usize> = RefCell::new(0));
+	COUNTER.with(|c| {
+		let id = *c.borrow();
+		*c.borrow_mut() = id + 1;
+		id
+	})
+}
+
 impl Element {
 	pub fn root() -> Self {
 		Element {
+			id: next_id(),
 			element_impl: ElementImpl::Root,
 			children: Vec::new(),
 			show: true,
@@ -187,12 +204,17 @@ impl Element {
 
 	pub fn new(e: ElementImpl) -> Element {
 		Element {
+			id: next_id(),
 			element_impl: e,
 			children: Vec::new(),
 			show: true,
 			group: false,
 			events: Events::default()
 		}
+	}
+
+	pub fn id(&self) -> usize {
+		self.id
 	}
 }
 
@@ -204,12 +226,8 @@ pub trait HostAbi: std::fmt::Debug {
 #[derive(Debug)]
 pub struct NoAbi(());
 impl HostAbi for NoAbi {
-	fn call(&self) {
-		unreachable!()
-	}
-	fn id(&self) -> usize {
-		unreachable!()
-	}
+	fn call(&self) { unreachable!() }
+	fn id(&self) -> usize { unreachable!() }
 }
 
 pub fn element_in(parent: &mut Element, e: ElementImpl, i: usize) -> &mut Element {

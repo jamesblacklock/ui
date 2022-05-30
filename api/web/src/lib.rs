@@ -28,7 +28,7 @@ extern "C" {
 	fn __remove(node: HtmlNode);
 	fn __set_text_content(node: HtmlNode, ptr: *const u8, len: usize);
 	fn __set_style(node: HtmlNode, pptr: *const u8, plen: usize, vptr: *const u8, vlen: usize);
-	fn __update_event_listener(node: HtmlNode, eptr: *const u8, len: usize, cptr: usize);
+	fn __update_event_listener(node: HtmlNode, event: *const u8, event_len: usize, callback: usize, heap_ref: JsValue);
 	fn __heap_object_as_bool(object: JsValue) -> isize;
 	fn __heap_object_stage_string(object: JsValue) -> isize;
 	fn __heap_object_load_string(dest: *const u8);
@@ -99,9 +99,9 @@ impl HtmlNode {
 			});
 		});
 	}
-	pub fn update_event_listener(&self, event: &str, callback: usize) {
+	pub fn update_event_listener(&self, event: &str, callback: usize, heap_ref: &JsValue) {
 		string_into_js(&event, |p, len| unsafe {
-			__update_event_listener(HtmlNode(self.0), p, len, callback);
+			__update_event_listener(HtmlNode(self.0), p, len, callback, JsValue(heap_ref.0));
 		});
 	}
 }
@@ -267,10 +267,6 @@ impl HostAbi for JsValue {
 	}
 }
 
-pub fn render_html(root: &mut Element, web_element: &mut WebElement) {
-	RenderWeb::render(root, web_element, 0, true);
-}
-
 fn length_as_css(this: &Length) -> String {
 	match this {
 		Length::Px(px) => format!("{px}px"),
@@ -416,20 +412,20 @@ impl WebElement {
 }
 
 pub trait RenderWeb {
-	fn render<'a>(&mut self, parent: &'a mut WebElement, _i: usize, _show: bool) -> Option<&'a mut WebElement> {
+	fn render<'a>(&mut self, parent: &'a mut WebElement, _i: usize, _show: bool, _heap_ref: &JsValue) -> Option<&'a mut WebElement> {
 		Some(parent)
 	}
 }
 
 impl RenderWeb for Element {
-	fn render<'a>(&mut self, parent: &'a mut WebElement, i: usize, _show: bool) -> Option<&'a mut WebElement> {
-		if let Some(mut parent) = RenderWeb::render(&mut self.element_impl, parent, i, self.show) {
+	fn render<'a>(&mut self, parent: &'a mut WebElement, i: usize, _show: bool, heap_ref: &JsValue) -> Option<&'a mut WebElement> {
+		if let Some(mut parent) = RenderWeb::render(&mut self.element_impl, parent, i, self.show, heap_ref) {
 			if let Some(callback) = self.events.pointer_click.as_ref() {
 				let node = parent.node.as_ref().unwrap();
 				let current_callback = parent.events.get("click");
 				if current_callback != Some(callback) {
 					let (callback, ptr) = unsafe { callback.clone().ptr() };
-					node.update_event_listener("click", ptr);
+					node.update_event_listener("click", ptr, heap_ref);
 					parent.events.insert("click".into(), callback);
 				}
 			}
@@ -437,7 +433,7 @@ impl RenderWeb for Element {
 				group_in(parent, i);
 			}
 			for (i, e) in self.children.iter_mut().enumerate() {
-				e.render(&mut parent, i, e.show);
+				e.render(&mut parent, i, e.show, heap_ref);
 			}
 			parent.active_group = None;
 			Some(parent)
@@ -448,12 +444,12 @@ impl RenderWeb for Element {
 }
 
 impl RenderWeb for ElementImpl {
-	fn render<'a>(&mut self, parent: &'a mut WebElement, i: usize, show: bool) -> Option<&'a mut WebElement> {
+	fn render<'a>(&mut self, parent: &'a mut WebElement, i: usize, show: bool, heap_ref: &JsValue) -> Option<&'a mut WebElement> {
 		match self {
 			ElementImpl::Root(..)|ElementImpl::Group => Some(parent),
-			ElementImpl::Rect(rect) => RenderWeb::render(rect, parent, i, show),
-			ElementImpl::Span(span) => RenderWeb::render(span, parent, i, show),
-			ElementImpl::Text(text) => RenderWeb::render(text, parent, i, show),
+			ElementImpl::Rect(rect) => RenderWeb::render(rect, parent, i, show, heap_ref),
+			ElementImpl::Span(span) => RenderWeb::render(span, parent, i, show, heap_ref),
+			ElementImpl::Text(text) => RenderWeb::render(text, parent, i, show, heap_ref),
 		}
 	}
 }
@@ -560,7 +556,7 @@ fn html_text_out(parent: &mut WebElement, content: &str, i: usize) {
 }
 
 impl RenderWeb for Rect {
-	fn render<'a>(&mut self, parent: &'a mut WebElement, i: usize, show: bool) -> Option<&'a mut WebElement> {
+	fn render<'a>(&mut self, parent: &'a mut WebElement, i: usize, show: bool, _heap_ref: &JsValue) -> Option<&'a mut WebElement> {
 		if show {
 			let e = html_element_in(parent, "div", i);
 			let r = (self.color.r * 255.0) as u8;
@@ -581,7 +577,7 @@ impl RenderWeb for Rect {
 }
 
 impl RenderWeb for Span {
-	fn render<'a>(&mut self, parent: &'a mut WebElement, i: usize, show: bool) -> Option<&'a mut WebElement> {
+	fn render<'a>(&mut self, parent: &'a mut WebElement, i: usize, show: bool, _heap_ref: &JsValue) -> Option<&'a mut WebElement> {
 		if show {
 			let e = html_element_in(parent, "span", i);
 			if let Some(max_width) = self.max_width {
@@ -598,7 +594,7 @@ impl RenderWeb for Span {
 }
 
 impl RenderWeb for Text {
-	fn render<'a>(&mut self, parent: &'a mut WebElement, i: usize, show: bool) -> Option<&'a mut WebElement> {
+	fn render<'a>(&mut self, parent: &'a mut WebElement, i: usize, show: bool, _heap_ref: &JsValue) -> Option<&'a mut WebElement> {
 		if show {
 			html_text_in(parent, &self.content, i);
 		} else {
@@ -606,4 +602,8 @@ impl RenderWeb for Text {
 		}
 		return Some(get_web_element(parent, i));
 	}
+}
+
+pub fn render_html(component_heap_ref: &JsValue, root: &mut Element, web_element: &mut WebElement) {
+	RenderWeb::render(root, web_element, 0, true, component_heap_ref);
 }

@@ -149,9 +149,15 @@ pub trait ComponentBase: std::fmt::Debug + Component {
 	fn update<D: ElementData>(this: Rc<RefCell<Self>>, parent: &mut GenericElement<D>);
 }
 
-pub trait Component {
+pub trait Component: Default {
 	fn on_init(&mut self) {}
 	fn on_update(&mut self) {}
+}
+
+pub trait DefaultProps: Default {
+	fn default() -> Self {
+		Default::default()
+	}
 }
 
 #[derive(Debug)]

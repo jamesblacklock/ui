@@ -291,6 +291,7 @@ pub fn generate<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 					pub fn from(value: ui::JsValue) -> Self {
 						Self {
 							#(#js_field_inits)*
+							..ui::DefaultProps::default()
 						}
 					}
 				}
@@ -313,10 +314,10 @@ pub fn generate<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 				}
 				#[no_mangle]
 				#[allow(non_snake_case)]
-				pub fn #render_component(this: #abi_struct_name) {
+				pub fn #render_component(this: #abi_struct_name, heap_ref: ui::JsValue) {
 					let mut interface = #interface_struct_name::from_abi(this);
 					if let Some(e) = interface.web_element.as_mut() {
-						ui::render_html(&mut interface.root, e);
+						ui::render_html(&heap_ref, &mut interface.root, e);
 					}
 					interface.release_into_js();
 				}

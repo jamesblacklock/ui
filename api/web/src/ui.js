@@ -70,19 +70,24 @@
 					const value = uiPriv.getStringFromWasm(vptr, vlen);
 					uiPriv.getHeapNode(node).style[prop] = value;
 				},
-				__update_event_listener(node, eptr, len, cptr) {
-					const event = uiPriv.getStringFromWasm(eptr, len);
+				__update_event_listener(node, event_ptr, event_len, callback_ptr, component_heapref) {
+					const event = uiPriv.getStringFromWasm(event_ptr, event_len);
 					const key = `__${event}`;
 					
 					node = uiPriv.getHeapNode(node);
 					if(node[key]) {
 						node.removeEventListener(event, node[key]);
 					}
-					if(cptr == 0) {
+					if(callback_ptr == 0) {
 						delete node[key];
 						return;
 					}
-					node[key] = () => uiPriv.__dispatch_bound_callback(cptr);
+
+					let component = uiPriv.getHeapObject(component_heapref);
+					node[key] = () => {
+						uiPriv.__dispatch_bound_callback(callback_ptr);
+						component.triggerUpdate();
+					}
 					node.addEventListener(event, node[key]);
 				},
 				__heap_object_as_bool(ptr) {
@@ -422,7 +427,7 @@
 				};
 				Class.prototype.render = function() {
 					componentPriv.__update_component(this.ptr);
-					componentPriv.__render_component(this.ptr);
+					componentPriv.__render_component(this.ptr, uiPriv.addToHeap(this));
 				};
 				Class.prototype.triggerUpdate = function() {
 					cancelAnimationFrame(this.animationFrame);

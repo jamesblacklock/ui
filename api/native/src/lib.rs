@@ -26,7 +26,7 @@ pub struct RawBounds {
 	pub height: f32,
 }
 
-pub struct ComponentWindow<C: Component + 'static> {
+pub struct ComponentWindow<C: ComponentBase + 'static> {
 	window: Window,
 	background: wgpu::Color,
 	surface: wgpu::Surface,
@@ -219,7 +219,7 @@ fn find_element_at_px_point(e: &Element, point: (f32, f32)) -> &Element {
 	e
 }
 
-impl <C: Component> ComponentWindow<C> {
+impl <C: ComponentBase> ComponentWindow<C> {
 	pub fn new(window_builder: winit::window::WindowBuilder, component: C) -> Self {
 		let event_loop = EventLoop::new();
 		let window = window_builder.build(&event_loop).unwrap();
@@ -301,7 +301,7 @@ impl <C: Component> ComponentWindow<C> {
 					}
 				},
 				Event::RedrawRequested(_) => {
-					Component::update(self.component.clone(), &mut self.root);
+					ComponentBase::update(self.component.clone(), &mut self.root);
 
 					let mut rctx = RenderContext {
 						device: &device,

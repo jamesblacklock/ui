@@ -128,9 +128,30 @@ impl Iterable<i32> {
 	}
 }
 
-pub trait Component: std::fmt::Debug {
+pub trait Convert<T> {
+	fn convert(&self) -> T;
+}
+
+impl <T: Clone> Convert<T> for T {
+	fn convert(&self) -> T {
+		self.clone()
+	}
+}
+
+impl Convert<String> for i32 {
+	fn convert(&self) -> String {
+		self.to_string()
+	}
+}
+
+pub trait ComponentBase: std::fmt::Debug + Component {
 	type Abi: HostAbi;
 	fn update<D: ElementData>(this: Rc<RefCell<Self>>, parent: &mut GenericElement<D>);
+}
+
+pub trait Component {
+	fn on_init(&mut self) {}
+	fn on_update(&mut self) {}
 }
 
 #[derive(Debug)]
@@ -167,6 +188,7 @@ pub struct Span {
 	pub max_width: Option<f32>,
 	pub x: Length,
 	pub y: Length,
+	pub color: Color,
 }
 
 #[derive(Debug)]
@@ -255,7 +277,7 @@ impl <D: ElementData> GenericElement<D> {
 		}
 	}
 
-	pub fn handle_event<C: Component + 'static>(&mut self, component: Rc<RefCell<C>>, event_type: EventType, callback: Option<Callback<C>>) {
+	pub fn handle_event<C: ComponentBase + 'static>(&mut self, component: Rc<RefCell<C>>, event_type: EventType, callback: Option<Callback<C>>) {
 		match event_type {
 			EventType::PointerClick   => self.events.pointer_click   = callback.map(|c| c.bind(&component)),
 			EventType::PointerPress   => self.events.pointer_press   = callback.map(|c| c.bind(&component)),

@@ -2,16 +2,16 @@ use std::{
     cell::{RefCell, Cell},
     rc::Rc,
 };
-use super::{Component, HostAbi};
+use super::{ComponentBase, HostAbi};
 
 
-enum CallbackInner<C: Component> {
+enum CallbackInner<C: ComponentBase> {
 	Empty,
 	HostAbi(C::Abi),
 	Native(Box<dyn Fn(&mut C)>),
 }
 
-impl <C: Component> CallbackInner<C> {
+impl <C: ComponentBase> CallbackInner<C> {
 	fn call(&self, c: Rc<RefCell<C>>) {
 		match self {
 			CallbackInner::Empty => {},
@@ -21,13 +21,13 @@ impl <C: Component> CallbackInner<C> {
 	}
 }
 
-impl <C: Component> Default for CallbackInner<C> {
+impl <C: ComponentBase> Default for CallbackInner<C> {
 	fn default() -> Self {
 		CallbackInner::Empty
 	}
 }
 
-impl <C: Component> std::fmt::Debug for CallbackInner<C> {
+impl <C: ComponentBase> std::fmt::Debug for CallbackInner<C> {
 	fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
 		match self {
 			CallbackInner::Empty      => write!(fmt, "Empty"),
@@ -37,27 +37,27 @@ impl <C: Component> std::fmt::Debug for CallbackInner<C> {
 	}
 }
 
-pub struct Callback<C: Component>(Rc<Cell<CallbackInner<C>>>);
+pub struct Callback<C: ComponentBase>(Rc<Cell<CallbackInner<C>>>);
 
-impl <C: Component> Clone for Callback<C> {
+impl <C: ComponentBase> Clone for Callback<C> {
 	fn clone(&self) -> Self {
 		Callback(self.0.clone())
 	}
 }
 
-impl <C: Component> Default for Callback<C> {
+impl <C: ComponentBase> Default for Callback<C> {
 	fn default() -> Self {
 		Callback(Rc::new(Cell::new(CallbackInner::Empty)))
 	}
 }
 
-impl <C: Component, F: 'static + Fn(&mut C)> From<&'static F> for Callback<C> {
+impl <C: ComponentBase, F: 'static + Fn(&mut C)> From<&'static F> for Callback<C> {
 	fn from(f: &'static F) -> Self {
 		Callback(Rc::new(Cell::new(CallbackInner::Native(Box::new(f)))))
 	}
 }
 
-impl <C: Component> std::fmt::Debug for Callback<C> {
+impl <C: ComponentBase> std::fmt::Debug for Callback<C> {
 	fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
 		let item = self.0.take();
 		write!(fmt, "Callback({:?})", item)?;
@@ -66,7 +66,7 @@ impl <C: Component> std::fmt::Debug for Callback<C> {
 	}
 }
 
-impl <C: Component> Callback<C> {
+impl <C: ComponentBase> Callback<C> {
 	fn call(&self, c: Rc<RefCell<C>>) {
 		let f = self.0.take();
 		f.call(c);
@@ -77,7 +77,7 @@ impl <C: Component> Callback<C> {
     }
 }
 
-impl <C: Component + 'static> Callback<C> {
+impl <C: ComponentBase + 'static> Callback<C> {
 	pub fn bind(&self, c: &Rc<RefCell<C>>) -> BoundCallback {
 		BoundCallback::new(self, c)
 	}
@@ -97,12 +97,12 @@ trait BoundCallbackTrait: std::fmt::Debug {
 }
 
 #[derive(Debug, Clone)]
-struct BoundCallbackImpl<C: Component> {
+struct BoundCallbackImpl<C: ComponentBase> {
 	callback: Callback<C>,
 	component: Rc<RefCell<C>>,
 }
 
-impl <C: Component + 'static> BoundCallbackTrait for BoundCallbackImpl<C> {
+impl <C: ComponentBase + 'static> BoundCallbackTrait for BoundCallbackImpl<C> {
 	fn call(&self) {
 		self.callback.call(self.component.clone())
 	}
@@ -125,7 +125,7 @@ impl <C: Component + 'static> BoundCallbackTrait for BoundCallbackImpl<C> {
 pub struct BoundCallback(Box<Box<dyn BoundCallbackTrait>>);
 
 impl BoundCallback {
-	fn new<C: Component + 'static>(callback: &Callback<C>, component: &Rc<RefCell<C>>) -> BoundCallback {
+	fn new<C: ComponentBase + 'static>(callback: &Callback<C>, component: &Rc<RefCell<C>>) -> BoundCallback {
 		BoundCallback(Box::new(Box::new(BoundCallbackImpl {
 			callback: callback.clone(),
 			component: component.clone(),

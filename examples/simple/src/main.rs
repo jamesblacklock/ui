@@ -2,9 +2,9 @@ use winit::window::WindowBuilder;
 
 include!("./dist/simple.rs");
 
+impl ui::Component for Simple {}
+
 fn main() {
-	use simple::*;
-	
 	let window_builder = WindowBuilder::new().with_title("hello world");
 	let component = Simple::new(Props {
 		x: ui::Length::Px(100.0),

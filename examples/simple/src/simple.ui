@@ -37,5 +37,7 @@ rect {
         y: 90px;
         width: 20px;
         height: 40px;
+
+        span { color: #fff; (state) }
     }
 }

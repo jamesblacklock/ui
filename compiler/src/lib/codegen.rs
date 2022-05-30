@@ -141,7 +141,6 @@ pub fn generate<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 	web: bool,
 ) {
 	let name = name.into();
-	let mod_name = format_ident!("{}", name.clone().to_case(Case::Snake));
 	let struct_name = format_ident!("{}", name.clone().to_case(Case::UpperCamel));
 
 	let mut ctx = CodeGenCtx::new(name, path);
@@ -243,7 +242,7 @@ pub fn generate<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 						}
 						#[no_mangle]
 						#[allow(non_snake_case)]
-						pub fn #len(this: #abi_struct_name, index: usize) -> usize {
+						pub fn #len(this: #abi_struct_name) -> usize {
 							let interface = #interface_struct_name::from_abi(this);
 							let result = interface.component.borrow().#name_ident.len();
 							interface.release_into_js();
@@ -324,9 +323,9 @@ pub fn generate<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 				#[no_mangle]
 				#[allow(non_snake_case)]
 				pub fn #update_component(this: #abi_struct_name) {
-					use ui::Component;
+					use ui::ComponentBase;
 					let mut interface = #interface_struct_name::from_abi(this);
-					Component::update(interface.component.clone(), &mut interface.root);
+					ComponentBase::update(interface.component.clone(), &mut interface.root);
 					interface.release_into_js();
 				}
 				#[no_mangle]
@@ -345,35 +344,38 @@ pub fn generate<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 	};
 
 	let code = quote!(
-		#[allow(unused_variables, dead_code)]
-		pub mod #mod_name {
-			pub type Callback = ui::Callback<#struct_name>;
-			
-			#[derive(Default, Debug)]
-			pub struct #struct_name {
-				#(#pub_fields)*
-				#(#priv_fields)*
-			}
-			#[derive(Default, Debug)]
-			pub struct Props {
-				#(#pub_fields)*
-			}
-			impl #struct_name {
-				pub fn new(props: Props) -> Self {
-					Self {
-						#(#pub_field_inits)*
-						#(#priv_field_inits)*
-					}
-				}
-			}
-			impl ui::Component for #struct_name {
-				type Abi = ui::Abi;
-				fn update<D: ui::ElementData>(this: std::rc::Rc<std::cell::RefCell<#struct_name>>, parent: &mut ui::GenericElement<D>) {
-					#code
-				}
-			}
-			#web_code
+		pub type Callback = ui::Callback<#struct_name>;
+		
+		#[derive(Default, Debug)]
+		#[allow(dead_code)]
+		pub struct #struct_name {
+			#(#pub_fields)*
+			#(#priv_fields)*
 		}
+		#[derive(Default, Debug)]
+		pub struct Props {
+			#(#pub_fields)*
+		}
+		impl #struct_name {
+			pub fn new(props: Props) -> Self {
+				let mut instance = Self {
+					#(#pub_field_inits)*
+					#(#priv_field_inits)*
+				};
+				ui::Component::on_init(&mut instance);
+				instance
+			}
+		}
+		impl ui::ComponentBase for #struct_name {
+			type Abi = ui::Abi;
+
+			#[allow(unused_variables)]
+			fn update<D: ui::ElementData>(this: std::rc::Rc<std::cell::RefCell<#struct_name>>, parent: &mut ui::GenericElement<D>) {
+				ui::Component::on_update(&mut *this.borrow_mut());
+				#code
+			}
+		}
+		#web_code
 	);
 
 	writeln!(ctx.file, "{code}").unwrap();
@@ -581,7 +583,7 @@ impl Value {
 		match self {
 			Value::Binding(..) => {
 				let tokens = self.to_tokens_move();
-				quote!(#tokens.clone())
+				quote!(ui::Convert::convert(&#tokens))
 			},
 			_ => {
 				self.to_tokens_move()
@@ -627,6 +629,7 @@ impl CodeGen for Span {
 	fn generate(&self, _element_data: ElementData, _ctx: &mut CodeGenCtx) -> TokenStream {
 		let x = self.x.to_tokens();
 		let y = self.y.to_tokens();
+		let color = self.color.to_tokens();
 		let max_width = self.max_width.to_tokens_optional();
 		quote!(
 			let e_impl = ui::ElementImpl::Span(
@@ -634,6 +637,7 @@ impl CodeGen for Span {
 					x: #x,
 					y: #y,
 					max_width: #max_width,
+					color: #color,
 				}
 			);
 		)

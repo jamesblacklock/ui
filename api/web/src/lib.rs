@@ -280,6 +280,11 @@ fn length_as_css(this: &Length) -> String {
 	}
 }
 
+fn color_as_css(this: &Color) -> String {
+	let Color { r, g, b, a } = this;
+	format!("rgba({r},{g},{b},{a})", r=r*255.0, g=g*255.0, b=b*255.0)
+}
+
 pub trait AsJsValue {
 	fn as_js_value(&self) -> JsValue;
 }
@@ -288,7 +293,7 @@ pub trait FromJsValue {
 	fn from_js_value(value: JsValue) -> Self;
 }
 
-impl <C> FromJsValue for Callback<C> where C: Component<Abi = JsValue> {
+impl <C> FromJsValue for Callback<C> where C: ComponentBase<Abi = JsValue> {
 	fn from_js_value(value: JsValue) -> Self {
 		if value.is_function() {
 			Callback::from_abi(value)
@@ -584,6 +589,7 @@ impl RenderWeb for Span {
 			}
 			e.set_style("left", length_as_css(&self.x));
 			e.set_style("top", length_as_css(&self.y));
+			e.set_style("color", color_as_css(&self.color));
 		} else {
 			html_element_out(parent, "span", i);
 		}

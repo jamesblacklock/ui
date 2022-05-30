@@ -50,7 +50,7 @@ fn codegen_element(e: &Element, ctx: &mut CodeGenCtx) -> TokenStream {
 				let callback = e.events.$event.to_tokens();
 				let event_type = format_ident!("{}", stringify!($event).to_case(Case::UpperCamel));
 				events.push(quote!(
-					ui::handle_event(this.clone(), e, ui::EventType::#event_type, Some(#callback));
+					e.handle_event(this.clone(), ui::EventType::#event_type, Some(#callback));
 				));
 			}
 		};
@@ -68,7 +68,7 @@ fn codegen_element(e: &Element, ctx: &mut CodeGenCtx) -> TokenStream {
 		let group = quote!(
 			for item in #collection {
 				#parent
-				let e = ui::element_in(parent, e_impl, i);
+				let e = parent.element_in(e_impl, i);
 				#(#events)*
 				#(
 					let e = {
@@ -84,27 +84,27 @@ fn codegen_element(e: &Element, ctx: &mut CodeGenCtx) -> TokenStream {
 			let cond = cond.to_tokens();
 			quote!(
 				{
-					let parent = ui::begin_group(parent, #index);
+					let parent = parent.begin_group(#index);
 					let mut i = 0;
 					if #cond {
 						#group
 					}
-					ui::end_group(parent, i);
+					parent.end_group(i);
 				}
 			)
 		} else {
 			quote!(
 				{
-					let parent = ui::begin_group(parent, #index);
+					let parent = parent.begin_group(#index);
 					let mut i = 0;
 					#group
-					ui::end_group(parent, i);
+					parent.end_group(i);
 				}
 			)
 		}
 	} else {
 		let body = quote!(
-			let e = ui::element_in(parent, e_impl, #index);
+			let e = parent.element_in(e_impl, #index);
 			#(#events)*
 			#(
 				let e = {
@@ -121,7 +121,7 @@ fn codegen_element(e: &Element, ctx: &mut CodeGenCtx) -> TokenStream {
 				if #cond {
 					#body
 				} else {
-					ui::element_out(parent, e_impl, #index);
+					parent.element_out(e_impl, #index);
 				}
 			)
 		} else {
@@ -347,10 +347,6 @@ pub fn generate<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 	let code = quote!(
 		#[allow(unused_variables, dead_code)]
 		pub mod #mod_name {
-			#[cfg(target_arch = "wasm32")]
-			type Abi = ui::JsValue;
-			#[cfg(not(target_arch = "wasm32"))]
-			type Abi = ui::NoAbi;
 			pub type Callback = ui::Callback<#struct_name>;
 			
 			#[derive(Default, Debug)]
@@ -371,8 +367,8 @@ pub fn generate<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 				}
 			}
 			impl ui::Component for #struct_name {
-				type Abi = Abi;
-				fn update(this: std::rc::Rc<std::cell::RefCell<#struct_name>>, parent: &mut ui::Element) {
+				type Abi = ui::Abi;
+				fn update<D: ui::ElementData>(this: std::rc::Rc<std::cell::RefCell<#struct_name>>, parent: &mut ui::GenericElement<D>) {
 					#code
 				}
 			}

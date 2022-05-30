@@ -9,10 +9,17 @@ use wgpu::util::DeviceExt;
 
 pub use ui_base::*;
 
+#[derive(Default, Debug)]
+pub struct NativeElementData;
+impl ElementData for NativeElementData {}
+pub type Element = GenericElement<NativeElementData>;
+
+pub type Abi = NoAbi;
+
 const TIMES_NEW_ROMAN: &[u8] = include_bytes!("./Times New Roman.ttf");
 
 #[derive(Debug, Clone)]
-pub struct FloatBounds {
+pub struct RawBounds {
 	pub x: f32,
 	pub y: f32,
 	pub width: f32,
@@ -46,7 +53,7 @@ pub trait RenderNative {
 impl RenderNative for ElementImpl {
 	fn render<'a>(&self, ectx: &ElementContext, rctx: &mut RenderContext) {
 		match self {
-			ElementImpl::Root|ElementImpl::Group => {},
+			ElementImpl::Root(..)|ElementImpl::Group => {},
 			ElementImpl::Rect(rect) => RenderNative::render(rect, ectx, rctx),
 			ElementImpl::Span(_span) => {},
 			ElementImpl::Text(text) => RenderNative::render(text, ectx, rctx),
@@ -192,6 +199,26 @@ impl RenderNative for Element {
 	}
 }
 
+fn bounds_contain_point(b: &PxBounds, point: &(f32, f32)) -> bool {
+	b.x <= point.0 && b.y <= point.1 && b.x+b.width >= point.0 && b.y+b.height >= point.1
+}
+
+fn find_element_at_px_point(e: &Element, point: (f32, f32)) -> &Element {
+	let bounds = e.element_impl.bounds().unwrap();
+	assert!(bounds_contain_point(&bounds, &point));
+
+	let point = (point.0 - bounds.x, point.1 - bounds.y);
+	for c in &e.children {
+		if let Some(bounds) = c.element_impl.bounds() {
+			if bounds_contain_point(&bounds, &point) {
+				return find_element_at_px_point(c, point);
+			}
+		}
+	}
+
+	e
+}
+
 impl <C: Component> ComponentWindow<C> {
 	pub fn new(window_builder: winit::window::WindowBuilder, component: C) -> Self {
 		let event_loop = EventLoop::new();
@@ -251,11 +278,12 @@ impl <C: Component> ComponentWindow<C> {
 				self.window.scale_factor() as f32,
 			);
 
+			self.root.element_impl = ElementImpl::Root(ctx.vw / ctx.scale_factor, ctx.vh / ctx.scale_factor);
+
 			match event {
 				Event::WindowEvent { event: WindowEvent::CursorMoved { position, .. }, .. } => {
 					*self.pointer_position.as_mut().unwrap() =
 						(position.x as f32 / ctx.scale_factor, position.y as f32 / ctx.scale_factor);
-					println!("{:?}", self.pointer_position);
 				},
 				Event::WindowEvent { event: WindowEvent::CursorEntered {..}, .. } => {
 					self.pointer_position = Some((f32::INFINITY, f32::INFINITY));
@@ -264,9 +292,13 @@ impl <C: Component> ComponentWindow<C> {
 					self.pointer_position = None;
 				},
 				Event::WindowEvent { event: WindowEvent::MouseInput { state, button, .. }, .. } => {
-					// state: ElementState::Pressed/Released
-					// button: MouseButton::Left/Right/Middle/Other(n)
-					println!("{state:?} {button:?}");
+					if state == winit::event::ElementState::Released && button == winit::event::MouseButton::Left {
+						let e = find_element_at_px_point(&self.root, self.pointer_position.unwrap());
+						if let Some(callback) = &e.events.pointer_click {
+							callback.call();
+							self.window.request_redraw();
+						}
+					}
 				},
 				Event::RedrawRequested(_) => {
 					Component::update(self.component.clone(), &mut self.root);
@@ -348,7 +380,7 @@ pub struct ElementContext<'a> {
 	pub scale_factor: f32,
 	pub vw: f32,
 	pub vh: f32,
-	pub bounds: FloatBounds,
+	pub bounds: RawBounds,
 }
 
 impl <'a> ElementContext<'a> {
@@ -362,7 +394,7 @@ impl <'a> ElementContext<'a> {
 			vw: width,
 			vh: height,
 			scale_factor,
-			bounds: FloatBounds { x: 0.0, y: 0.0, width, height },
+			bounds: RawBounds { x: 0.0, y: 0.0, width, height },
 		}
 	}
 }

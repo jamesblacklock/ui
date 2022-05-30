@@ -6,6 +6,13 @@ use std::{
 
 pub use ui_base::*;
 
+#[derive(Default)]
+pub struct WebElementData;
+impl ElementData for WebElementData {}
+pub type Element = GenericElement<WebElementData>;
+
+pub type Abi = JsValue;
+
 pub mod panic_hook;
 
 #[link(wasm_import_module = "runtime")]
@@ -438,7 +445,7 @@ impl RenderWeb for Element {
 impl RenderWeb for ElementImpl {
 	fn render<'a>(&mut self, parent: &'a mut WebElement, i: usize, show: bool) -> Option<&'a mut WebElement> {
 		match self {
-			ElementImpl::Root|ElementImpl::Group => Some(parent),
+			ElementImpl::Root(..)|ElementImpl::Group => Some(parent),
 			ElementImpl::Rect(rect) => RenderWeb::render(rect, parent, i, show),
 			ElementImpl::Span(span) => RenderWeb::render(span, parent, i, show),
 			ElementImpl::Text(text) => RenderWeb::render(text, parent, i, show),

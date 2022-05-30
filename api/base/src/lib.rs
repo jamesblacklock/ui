@@ -130,12 +130,12 @@ impl Iterable<i32> {
 
 pub trait Component: std::fmt::Debug {
 	type Abi: HostAbi;
-	fn update(this: Rc<RefCell<Self>>, parent: &mut Element);
+	fn update<D: ElementData>(this: Rc<RefCell<Self>>, parent: &mut GenericElement<D>);
 }
 
 #[derive(Debug)]
 pub enum ElementImpl {
-	Root,
+	Root(f32, f32),
 	Group,
 	Rect(Rect),
 	Span(Span),
@@ -147,6 +147,9 @@ impl ElementImpl {
 		match self {
 			ElementImpl::Rect(rect) => {
 				Some(rect.bounds.to_px_bounds())
+			},
+			&ElementImpl::Root(w, h) => {
+				Some(PxBounds { x: 0.0, y: 0.0, width: w, height: h })
 			},
 			_ => None,
 		}
@@ -171,11 +174,14 @@ pub struct Text {
 	pub content: String,
 }
 
+pub trait ElementData: Default {}
+
 #[derive(Debug)]
-pub struct Element {
+pub struct GenericElement<D: ElementData> {
 	id: usize,
+	pub data: D,
 	pub element_impl: ElementImpl,
-	pub children: Vec<Element>,
+	pub children: Vec<GenericElement<D>>,
 	pub show: bool,
 	pub group: bool,
 	pub events: Events,
@@ -190,31 +196,74 @@ fn next_id() -> usize {
 	})
 }
 
-impl Element {
+impl <D: ElementData> GenericElement<D> {
 	pub fn root() -> Self {
-		Element {
+		GenericElement {
 			id: next_id(),
-			element_impl: ElementImpl::Root,
+			element_impl: ElementImpl::Root(0.0, 0.0),
 			children: Vec::new(),
 			show: true,
 			group: false,
-			events: Events::default()
+			events: Default::default(),
+			data: Default::default(),
 		}
 	}
 
-	pub fn new(e: ElementImpl) -> Element {
-		Element {
+	pub fn new(e: ElementImpl) -> Self {
+		GenericElement {
 			id: next_id(),
 			element_impl: e,
 			children: Vec::new(),
 			show: true,
 			group: false,
-			events: Events::default()
+			events: Default::default(),
+			data: Default::default(),
 		}
 	}
 
 	pub fn id(&self) -> usize {
 		self.id
+	}
+
+	pub fn element_in(&mut self, e: ElementImpl, i: usize) -> &mut Self {
+		if i < self.children.len() {
+			let element = &mut self.children[i];
+			element.show = true;
+			element.element_impl = e;
+			element
+		} else if i == self.children.len() {
+			self.children.push(GenericElement::new(e));
+			self.children.last_mut().unwrap()
+		} else {
+			panic!("this should never happen")
+		}
+	}
+
+	pub fn element_out(&mut self, e: ElementImpl, i: usize) {
+		self.element_in(e, i).show = false;
+	}
+
+	pub fn begin_group(&mut self, i: usize) -> &mut Self {
+		let mut e = self.element_in(ElementImpl::Group, i);
+		e.group = true;
+		e
+	}
+
+	pub fn end_group(&mut self, i: usize) {
+		for e in self.children.iter_mut().skip(i) {
+			e.show = false;
+		}
+	}
+
+	pub fn handle_event<C: Component + 'static>(&mut self, component: Rc<RefCell<C>>, event_type: EventType, callback: Option<Callback<C>>) {
+		match event_type {
+			EventType::PointerClick   => self.events.pointer_click   = callback.map(|c| c.bind(&component)),
+			EventType::PointerPress   => self.events.pointer_press   = callback.map(|c| c.bind(&component)),
+			EventType::PointerRelease => self.events.pointer_release = callback.map(|c| c.bind(&component)),
+			EventType::PointerMove    => self.events.pointer_move    = callback.map(|c| c.bind(&component)),
+			EventType::PointerIn      => self.events.pointer_in      = callback.map(|c| c.bind(&component)),
+			EventType::PointerOut     => self.events.pointer_out     = callback.map(|c| c.bind(&component)),
+		}
 	}
 }
 
@@ -228,36 +277,6 @@ pub struct NoAbi(());
 impl HostAbi for NoAbi {
 	fn call(&self) { unreachable!() }
 	fn id(&self) -> usize { unreachable!() }
-}
-
-pub fn element_in(parent: &mut Element, e: ElementImpl, i: usize) -> &mut Element {
-	if i < parent.children.len() {
-		let element = &mut parent.children[i];
-		element.show = true;
-		element.element_impl = e;
-		element
-	} else if i == parent.children.len() {
-		parent.children.push(Element::new(e));
-		parent.children.last_mut().unwrap()
-	} else {
-		panic!("this should never happen")
-	}
-}
-
-pub fn element_out(parent: &mut Element, e: ElementImpl, i: usize) {
-	element_in(parent, e, i).show = false;
-}
-
-pub fn begin_group(parent: &mut Element, i: usize) -> &mut Element {
-	let mut e = element_in(parent, ElementImpl::Group, i);
-	e.group = true;
-	e
-}
-
-pub fn end_group(parent: &mut Element, i: usize) {
-	for e in parent.children.iter_mut().skip(i) {
-		e.show = false;
-	}
 }
 
 pub enum EventType {
@@ -289,17 +308,6 @@ impl Default for Events {
 			pointer_in: None,
 			pointer_out: None,
 		}
-	}
-}
-
-pub fn handle_event<C: Component + 'static>(component: Rc<RefCell<C>>, parent: &mut Element, event_type: EventType, callback: Option<Callback<C>>) {
-	match event_type {
-		EventType::PointerClick   => parent.events.pointer_click   = callback.map(|c| c.bind(&component)),
-		EventType::PointerPress   => parent.events.pointer_press   = callback.map(|c| c.bind(&component)),
-		EventType::PointerRelease => parent.events.pointer_release = callback.map(|c| c.bind(&component)),
-		EventType::PointerMove    => parent.events.pointer_move    = callback.map(|c| c.bind(&component)),
-		EventType::PointerIn      => parent.events.pointer_in      = callback.map(|c| c.bind(&component)),
-		EventType::PointerOut     => parent.events.pointer_out     = callback.map(|c| c.bind(&component)),
 	}
 }
 

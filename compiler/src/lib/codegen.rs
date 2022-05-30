@@ -256,7 +256,7 @@ pub fn generate<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 			js_field_inits.push(quote!(
 				#name_ident: value.get_property(#name)
 					.map(|e| ui::FromJsValue::from_js_value(e))
-					.unwrap_or_default(),));
+					.unwrap_or(defaults.#name_ident),));
 		}
 
 		quote!(
@@ -289,9 +289,9 @@ pub fn generate<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
 				}
 				impl Props {
 					pub fn from(value: ui::JsValue) -> Self {
+						let defaults = <Props as ui::DefaultProps>::default();
 						Self {
 							#(#js_field_inits)*
-							..ui::DefaultProps::default()
 						}
 					}
 				}

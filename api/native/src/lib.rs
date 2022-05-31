@@ -61,8 +61,16 @@ impl RenderNative for ElementImpl {
 	}
 }
 
+fn build_text_bounds(text: &Text, ctx: &ElementContext) -> RawBounds {
+	let x = ctx.bounds.x * ctx.scale_factor;
+	let y = ctx.bounds.y * ctx.scale_factor;
+	let width = ctx.bounds.width * ctx.scale_factor;
+	let height = ctx.bounds.height * ctx.scale_factor;
+	RawBounds { x, y, width, height }
+}
+
 impl RenderNative for Text {
-	fn render(&self, _ectx: &ElementContext, rctx: &mut RenderContext) {
+	fn render(&self, ectx: &ElementContext, rctx: &mut RenderContext) {
 		use wgpu_text::{
 			BrushBuilder,
 			section::{
@@ -79,6 +87,7 @@ impl RenderNative for Text {
 			.unwrap()
 			.build(rctx.device, rctx.surface_config);
 
+		let bounds = build_text_bounds(self, ectx);
 		let font_size = 32.0;
 		let section = Section::default()
 			.add_text(
@@ -86,13 +95,13 @@ impl RenderNative for Text {
 					.with_scale(font_size)
 					.with_color([0.0, 0.0, 0.0, 1.0]),
 			)
-			.with_bounds((rctx.surface_config.width as f32 / 2.0, rctx.surface_config.height as f32))
+			.with_bounds((bounds.width, bounds.height))
 			.with_layout(
 				Layout::default()
-					.v_align(VerticalAlign::Center)
+					.v_align(VerticalAlign::Top)
 					.line_breaker(BuiltInLineBreaker::AnyCharLineBreaker),
 			)
-			.with_screen_position((50.0, rctx.surface_config.height as f32 * 0.5))
+			.with_screen_position((bounds.x, bounds.y))
 			.to_owned();
 
 		brush.queue(&section);

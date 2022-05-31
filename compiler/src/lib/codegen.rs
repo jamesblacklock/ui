@@ -541,10 +541,6 @@ impl Value {
 				quote!(ui::Length::Px(#n))
 			},
 			Value::Color(r, g, b, a) => {
-				let r = *r as f32 / 255.0;
-				let g = *g as f32 / 255.0;
-				let b = *b as f32 / 255.0;
-				let a = *a;
 				quote!(ui::Color { r: #r, g: #g, b: #b, a: #a })
 			},
 			Value::Int(n) => {

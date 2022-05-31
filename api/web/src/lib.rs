@@ -278,7 +278,7 @@ fn length_as_css(this: &Length) -> String {
 
 fn color_as_css(this: &Color) -> String {
 	let Color { r, g, b, a } = this;
-	format!("rgba({r},{g},{b},{a})", r=r*255.0, g=g*255.0, b=b*255.0)
+	format!("rgba({r},{g},{b},{a})")
 }
 
 pub trait AsJsValue {
@@ -559,9 +559,9 @@ impl RenderWeb for Rect {
 	fn render<'a>(&mut self, parent: &'a mut WebElement, i: usize, show: bool, _heap_ref: &JsValue) -> Option<&'a mut WebElement> {
 		if show {
 			let e = html_element_in(parent, "div", i);
-			let r = (self.color.r * 255.0) as u8;
-			let g = (self.color.g * 255.0) as u8;
-			let b = (self.color.b * 255.0) as u8;
+			let r = self.color.r;
+			let g = self.color.g;
+			let b = self.color.b;
 			let a = self.color.a;
 			e.set_style("position", "absolute");
 			e.set_style("background", &format!("rgba({},{},{},{})", r,g,b,a));

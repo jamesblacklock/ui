@@ -30,7 +30,12 @@ pub struct ComponentWindow<C: ComponentBase + 'static> {
 	instance: wgpu::Instance,
 	component: Rc<RefCell<C>>,
 	root: Element,
-	pointer_position: Option<(f32, f32)>,
+	pointer_position: (f32, f32),
+}
+
+pub struct FontStyle {
+	size: f32,
+	color: Color,
 }
 
 pub struct RenderContext<'a> {
@@ -41,10 +46,12 @@ pub struct RenderContext<'a> {
 	pub device: &'a wgpu::Device,
 	pub queue: &'a wgpu::Queue,
 	pub text_sections: Vec<OwnedSection>,
+	pub font_styles: Vec<FontStyle>,
 }
 
 pub trait RenderNative {
 	fn render(&self, _ectx: &ElementContext, _rctx: &mut RenderContext) {}
+	fn font_style(&self) -> Option<FontStyle> { None }
 }
 
 impl RenderNative for ElementImpl {
@@ -52,18 +59,41 @@ impl RenderNative for ElementImpl {
 		match self {
 			ElementImpl::Root(..)|ElementImpl::Group => {},
 			ElementImpl::Rect(rect) => RenderNative::render(rect, ectx, rctx),
-			ElementImpl::Span(_span) => {},
+			ElementImpl::Span(span) => RenderNative::render(span, ectx, rctx),
 			ElementImpl::Text(text) => RenderNative::render(text, ectx, rctx),
 		}
+	}
+	fn font_style(&self) -> Option<FontStyle> {
+		match self {
+			ElementImpl::Root(..)|ElementImpl::Group => None,
+			ElementImpl::Rect(rect) => rect.font_style(),
+			ElementImpl::Span(span) => span.font_style(),
+			ElementImpl::Text(text) => text.font_style(),
+		}
+	}
+}
+
+impl RenderNative for Span {
+	fn font_style(&self) -> Option<FontStyle> {
+		Some(FontStyle {
+			size: 35.0,
+			color: self.color.clone(),
+		})
 	}
 }
 
 impl RenderNative for Text {
 	fn render(&self, _ectx: &ElementContext, rctx: &mut RenderContext) {
+		let style = rctx.font_styles.last().unwrap();
 		rctx.text_sections.last_mut().unwrap().text.push(
 			wgpu_text::section::OwnedText::new(&self.content)
-				.with_scale(35.0)
-				.with_color([0.0, 0.0, 0.0, 1.0]),
+				.with_scale(style.size)
+				.with_color([
+					f32::powf(style.color.r as f32 / 255.0, 2.2),
+					f32::powf(style.color.g as f32 / 255.0, 2.2),
+					f32::powf(style.color.b as f32 / 255.0, 2.2),
+					style.color.a as f32,
+				]),
 		);
 	}
 }
@@ -139,9 +169,9 @@ fn build_rect_vertices(rect: &Rect, ctx: &ElementContext) -> (Vec<Vertex>, Vec<u
 	let y1 = -ctx.bounds.y / vh + 1.0;
 	let y2 = y1 - ctx.bounds.height / vh;
 	let vertices = vertices(
-		rect.color.r,
-		rect.color.g,
-		rect.color.b,
+		f32::powf(rect.color.r as f32 / 255.0, 2.2),
+		f32::powf(rect.color.g as f32 / 255.0, 2.2),
+		f32::powf(rect.color.b as f32 / 255.0, 2.2),
 		rect.color.a, &[
 		(x1, y1),(x1, y2),
 		(x2, y1),(x2, y2),
@@ -155,6 +185,13 @@ impl RenderNative for Element {
 		let ctx = create_context(self, parent_ctx);
 
 		self.element_impl.render(&ctx, rctx);
+
+		let pushed_font_style = if let Some(style) = self.element_impl.font_style() {
+			rctx.font_styles.push(style);
+			true
+		} else {
+			false
+		};
 
 		let render_text = if let Some(_) = self.element_impl.bounds() {
 			rctx.text_sections.push(create_section(ctx.bounds.to_raw(ctx.scale_factor)));
@@ -181,6 +218,10 @@ impl RenderNative for Element {
 			let view = rctx.frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
 			let buf = brush.draw(rctx.device, &view, rctx.queue);
 			rctx.bufs.push(buf);
+		}
+
+		if pushed_font_style {
+			rctx.font_styles.pop();
 		}
 	}
 }
@@ -221,7 +262,7 @@ impl <C: ComponentBase> ComponentWindow<C> {
 			instance,
 			component: Rc::new(RefCell::new(component)),
 			root: Element::root(),
-			pointer_position: None,
+			pointer_position: (f32::INFINITY, f32::INFINITY),
 		}
 	}
 
@@ -268,18 +309,18 @@ impl <C: ComponentBase> ComponentWindow<C> {
 
 			match event {
 				Event::WindowEvent { event: WindowEvent::CursorMoved { position, .. }, .. } => {
-					*self.pointer_position.as_mut().unwrap() =
+					self.pointer_position =
 						(position.x as f32 / ctx.scale_factor, position.y as f32 / ctx.scale_factor);
 				},
 				Event::WindowEvent { event: WindowEvent::CursorEntered {..}, .. } => {
-					self.pointer_position = Some((f32::INFINITY, f32::INFINITY));
+					self.pointer_position = (f32::INFINITY, f32::INFINITY);
 				},
 				Event::WindowEvent { event: WindowEvent::CursorLeft {..}, .. } => {
-					self.pointer_position = None;
+					self.pointer_position = (f32::INFINITY, f32::INFINITY);
 				},
 				Event::WindowEvent { event: WindowEvent::MouseInput { state, button, .. }, .. } => {
 					if state == winit::event::ElementState::Released && button == winit::event::MouseButton::Left {
-						let e = find_element_at_px_point(&self.root, self.pointer_position.unwrap());
+						let e = find_element_at_px_point(&self.root, self.pointer_position);
 						if let Some(callback) = &e.events.pointer_click {
 							callback.call();
 							self.window.request_redraw();
@@ -306,6 +347,7 @@ impl <C: ComponentBase> ComponentWindow<C> {
 						encoder: device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None }),
 						bufs: Vec::new(),
 						text_sections: vec![root_text_section],
+						font_styles: vec![FontStyle { color: Color { r: 0, g: 0, b: 0, a: 1.0 }, size: 35.0 }],
 					};
 
 					{

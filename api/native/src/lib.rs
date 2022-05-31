@@ -6,6 +6,10 @@ use winit::{
 	window::{Window},
 };
 use wgpu::util::DeviceExt;
+use wgpu_text::{
+	BrushBuilder,
+	section::OwnedSection
+};
 
 pub use ui_base::*;
 
@@ -17,14 +21,6 @@ pub type Element = GenericElement<NativeElementData>;
 pub type Abi = NoAbi;
 
 const TIMES_NEW_ROMAN: &[u8] = include_bytes!("./Times New Roman.ttf");
-
-#[derive(Debug, Clone)]
-pub struct RawBounds {
-	pub x: f32,
-	pub y: f32,
-	pub width: f32,
-	pub height: f32,
-}
 
 pub struct ComponentWindow<C: ComponentBase + 'static> {
 	window: Window,
@@ -44,6 +40,7 @@ pub struct RenderContext<'a> {
 	pub surface_config: &'a wgpu::SurfaceConfiguration,
 	pub device: &'a wgpu::Device,
 	pub queue: &'a wgpu::Queue,
+	pub text_sections: Vec<OwnedSection>,
 }
 
 pub trait RenderNative {
@@ -61,54 +58,13 @@ impl RenderNative for ElementImpl {
 	}
 }
 
-fn build_text_bounds(text: &Text, ctx: &ElementContext) -> RawBounds {
-	let x = ctx.bounds.x * ctx.scale_factor;
-	let y = ctx.bounds.y * ctx.scale_factor;
-	let width = ctx.bounds.width * ctx.scale_factor;
-	let height = ctx.bounds.height * ctx.scale_factor;
-	RawBounds { x, y, width, height }
-}
-
 impl RenderNative for Text {
-	fn render(&self, ectx: &ElementContext, rctx: &mut RenderContext) {
-		use wgpu_text::{
-			BrushBuilder,
-			section::{
-				BuiltInLineBreaker,
-				Layout,
-				// OwnedText,
-				Section,
-				Text,
-				VerticalAlign,
-			}
-		};
-
-		let mut brush = BrushBuilder::using_font_bytes(TIMES_NEW_ROMAN)
-			.unwrap()
-			.build(rctx.device, rctx.surface_config);
-
-		let bounds = build_text_bounds(self, ectx);
-		let font_size = 32.0;
-		let section = Section::default()
-			.add_text(
-				Text::new(&self.content)
-					.with_scale(font_size)
-					.with_color([0.0, 0.0, 0.0, 1.0]),
-			)
-			.with_bounds((bounds.width, bounds.height))
-			.with_layout(
-				Layout::default()
-					.v_align(VerticalAlign::Top)
-					.line_breaker(BuiltInLineBreaker::AnyCharLineBreaker),
-			)
-			.with_screen_position((bounds.x, bounds.y))
-			.to_owned();
-
-		brush.queue(&section);
-
-		let view = rctx.frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
-		let buf = brush.draw(rctx.device, &view, rctx.queue);
-		rctx.bufs.push(buf);
+	fn render(&self, _ectx: &ElementContext, rctx: &mut RenderContext) {
+		rctx.text_sections.last_mut().unwrap().text.push(
+			wgpu_text::section::OwnedText::new(&self.content)
+				.with_scale(35.0)
+				.with_color([0.0, 0.0, 0.0, 1.0]),
+		);
 	}
 }
 
@@ -200,10 +156,31 @@ impl RenderNative for Element {
 
 		self.element_impl.render(&ctx, rctx);
 
+		let render_text = if let Some(_) = self.element_impl.bounds() {
+			rctx.text_sections.push(create_section(ctx.bounds.to_raw(ctx.scale_factor)));
+			true
+		} else {
+			false
+		};
+
 		for e in self.children.iter() {
 			if e.show {
 				e.render(&ctx, rctx);
 			}
+		}
+
+		if render_text {
+			let section = rctx.text_sections.pop().unwrap();
+
+			let mut brush = BrushBuilder::using_font_bytes(TIMES_NEW_ROMAN)
+			.unwrap()
+			.build(&rctx.device, &rctx.surface_config);
+
+			brush.queue(&section);
+
+			let view = rctx.frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
+			let buf = brush.draw(rctx.device, &view, rctx.queue);
+			rctx.bufs.push(buf);
 		}
 	}
 }
@@ -312,6 +289,15 @@ impl <C: ComponentBase> ComponentWindow<C> {
 				Event::RedrawRequested(_) => {
 					ComponentBase::update(self.component.clone(), &mut self.root);
 
+					let root_text_section = create_section(
+						RawBounds {
+							x: 0.0,
+							y: 0.0,
+							width: config.width as f32,
+							height: config.height as f32
+						},
+					);
+			
 					let mut rctx = RenderContext {
 						device: &device,
 						queue: &queue,
@@ -319,6 +305,7 @@ impl <C: ComponentBase> ComponentWindow<C> {
 						frame: self.surface.get_current_texture().unwrap(),
 						encoder: device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None }),
 						bufs: Vec::new(),
+						text_sections: vec![root_text_section],
 					};
 
 					{
@@ -367,7 +354,7 @@ impl <C: ComponentBase> ComponentWindow<C> {
 	}
 }
 
-fn create_context<'a>(e: &Element, parent: &'a ElementContext) -> ElementContext<'a> {
+fn create_context<'a>(e: &'a Element, parent: &'a ElementContext) -> ElementContext<'a> {
 	let mut bounds = parent.bounds.clone();
 	if let Some(b) = e.element_impl.bounds() {
 		bounds.x += b.x;
@@ -389,7 +376,27 @@ pub struct ElementContext<'a> {
 	pub scale_factor: f32,
 	pub vw: f32,
 	pub vh: f32,
-	pub bounds: RawBounds,
+	pub bounds: PxBounds,
+}
+
+fn create_section(bounds: RawBounds) -> wgpu_text::section::OwnedSection {
+	use wgpu_text::{
+		section::{
+			BuiltInLineBreaker,
+			Layout,
+			Section,
+			VerticalAlign,
+		}
+	};
+	Section::default()
+		.with_bounds((bounds.width, bounds.height))
+		.with_layout(
+			Layout::default()
+				.v_align(VerticalAlign::Top)
+				.line_breaker(BuiltInLineBreaker::UnicodeLineBreaker),
+		)
+		.with_screen_position((bounds.x, bounds.y))
+		.to_owned()
 }
 
 impl <'a> ElementContext<'a> {
@@ -403,7 +410,7 @@ impl <'a> ElementContext<'a> {
 			vw: width,
 			vh: height,
 			scale_factor,
-			bounds: RawBounds { x: 0.0, y: 0.0, width, height },
+			bounds: PxBounds { x: 0.0, y: 0.0, width, height },
 		}
 	}
 }

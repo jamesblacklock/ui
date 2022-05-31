@@ -6,11 +6,30 @@ mod callback;
 pub use callback::{Callback, BoundCallback};
 
 #[derive(Debug, Clone)]
+pub struct RawBounds {
+	pub x: f32,
+	pub y: f32,
+	pub width: f32,
+	pub height: f32,
+}
+
+#[derive(Debug, Clone)]
 pub struct PxBounds {
 	pub x: f32,
 	pub y: f32,
 	pub width: f32,
 	pub height: f32,
+}
+
+impl PxBounds {
+	pub fn to_raw(&self, scale_factor: f32) -> RawBounds {
+		RawBounds {
+			x: self.x * scale_factor,
+			y: self.y * scale_factor,
+			width: self.width * scale_factor,
+			height: self.height * scale_factor,
+		}
+	}
 }
 
 #[derive(Debug, Clone)]
